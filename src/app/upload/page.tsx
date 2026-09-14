@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Link as LinkIcon, Image as ImageIcon, Camera, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Smartphone, Images } from 'lucide-react'
+import { Upload, Link as LinkIcon, Camera, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Smartphone, Images } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'

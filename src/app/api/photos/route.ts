@@ -49,7 +49,6 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 
 // Global in-memory store for serverless runtime
 declare global {
-  // eslint-disable-next-line no-var
   var __PHOTOWALL_GLOBAL_STORE__: Photo[] | undefined
 }
 
