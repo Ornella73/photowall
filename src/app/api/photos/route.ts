@@ -53,19 +53,20 @@ declare global {
 }
 
 function getPhotosStore(): Photo[] {
-  if (!globalThis.__PHOTOWALL_GLOBAL_STORE__) {
-    try {
-      if (fs.existsSync(TMP_FILE)) {
-        const raw = fs.readFileSync(TMP_FILE, 'utf-8')
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          globalThis.__PHOTOWALL_GLOBAL_STORE__ = parsed
-          return parsed
-        }
+  try {
+    if (fs.existsSync(TMP_FILE)) {
+      const raw = fs.readFileSync(TMP_FILE, 'utf-8')
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        globalThis.__PHOTOWALL_GLOBAL_STORE__ = parsed
+        return parsed
       }
-    } catch {
-      // /tmp read fallback
     }
+  } catch {
+    // /tmp read fallback
+  }
+
+  if (!globalThis.__PHOTOWALL_GLOBAL_STORE__) {
     globalThis.__PHOTOWALL_GLOBAL_STORE__ = [...INITIAL_DEMO_PHOTOS]
   }
   return globalThis.__PHOTOWALL_GLOBAL_STORE__

@@ -103,16 +103,18 @@ export default function WallPage() {
 
     loadPhotos()
 
-    // Setup Fallback Auto-Polling (Intervalle de 2 sec) pour mise à jour en temps réel pour tous
+    // Setup Fallback Auto-Polling (Intervalle de 3 sec) pour mise à jour en temps réel pour tous
     const pollingInterval = setInterval(async () => {
       try {
         const updated = await getActivePhotos()
         if (isMounted) {
           setPhotos((prev) => {
-            if (updated.length > prev.length) {
-              showNotification('✨ Une nouvelle photo vient d\'apparaître sur le mur !')
-            }
-            if (updated.length !== prev.length || updated.some((p, i) => p.id !== prev[i]?.id)) {
+            const prevIds = prev.map((p) => p.id).join(',')
+            const updatedIds = updated.map((p) => p.id).join(',')
+            if (prevIds !== updatedIds) {
+              if (updated.length > prev.length) {
+                showNotification('✨ Une nouvelle photo vient d\'apparaître sur le mur !')
+              }
               return updated
             }
             return prev
@@ -121,12 +123,21 @@ export default function WallPage() {
       } catch {
         // Silent polling fail
       }
-    }, 2000)
+    }, 3000)
 
     // Setup Local Storage & BroadcastChannel listeners
     const handleLocalUpdate = async () => {
       const updated = await getActivePhotos()
-      if (isMounted) setPhotos(updated)
+      if (isMounted) {
+        setPhotos((prev) => {
+          const prevIds = prev.map((p) => p.id).join(',')
+          const updatedIds = updated.map((p) => p.id).join(',')
+          if (prevIds !== updatedIds) {
+            return updated
+          }
+          return prev
+        })
+      }
     }
 
     window.addEventListener('photowall_local_update', handleLocalUpdate)

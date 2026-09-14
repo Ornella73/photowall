@@ -119,11 +119,13 @@ export function getLocalPhotos(): Photo[] {
   }
 }
 
-export function saveLocalPhotos(photos: Photo[]) {
+export function saveLocalPhotos(photos: Photo[], notify = false) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(photos))
-    notifyBroadcastChannel()
+    if (notify) {
+      notifyBroadcastChannel()
+    }
   } catch (err) {
     console.warn('Failed to save photos to localStorage:', err)
   }
@@ -145,6 +147,8 @@ function notifyBroadcastChannel() {
  * Get all active photos globally (from Supabase or shared server API /api/photos)
  */
 export async function getActivePhotos(): Promise<Photo[]> {
+  let serverPhotos: Photo[] | null = null
+
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
@@ -155,30 +159,62 @@ export async function getActivePhotos(): Promise<Photo[]> {
         .order('created_at', { ascending: false })
 
       if (!error && data) {
-        return data
+        serverPhotos = data
       }
     } catch {
       // Supabase network failure
     }
   }
 
-  // Fetch shared server API
-  try {
-    const res = await fetch('/api/photos', {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-    })
-    if (res.ok) {
-      const serverPhotos = (await res.json()) as Photo[]
-      saveLocalPhotos(serverPhotos)
-      return serverPhotos
+  if (!serverPhotos) {
+    try {
+      const res = await fetch('/api/photos', {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      })
+      if (res.ok) {
+        serverPhotos = (await res.json()) as Photo[]
+      }
+    } catch {
+      // network fallback
     }
-  } catch {
-    // network fallback
   }
 
-  const local = getLocalPhotos()
-  return local.filter((p) => p && p.status === 'active' && p.image_url)
+  const localPhotos = getLocalPhotos()
+  const uploaderToken = typeof window !== 'undefined' ? localStorage.getItem('photowall_uploader_token') || '' : ''
+
+  const photoMap = new Map<string, Photo>()
+
+  // 1. Add server photos
+  if (serverPhotos && Array.isArray(serverPhotos)) {
+    for (const p of serverPhotos) {
+      if (p && p.id && p.status === 'active') {
+        photoMap.set(p.id, p)
+      }
+    }
+  }
+
+  // 2. Add local photos if active and not soft-deleted
+  for (const p of localPhotos) {
+    if (!p || !p.id) continue
+    if (p.status === 'deleted') {
+      photoMap.delete(p.id)
+    } else if (p.status === 'active') {
+      if (!photoMap.has(p.id)) {
+        // If current user uploaded it, preserve local copy
+        if (uploaderToken && p.uploader_token === uploaderToken) {
+          photoMap.set(p.id, p)
+        }
+      }
+    }
+  }
+
+  const result = Array.from(photoMap.values()).sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
+
+  saveLocalPhotos(result, false)
+  return result
 }
 
 /**
@@ -214,7 +250,7 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
 }
 
 /**
- * Upload & Create Photo (Compresses mobile photos client-side & uploads via FormData)
+ * Upload & Create Photo
  */
 export async function addPhoto(params: {
   imageUrl: string
@@ -250,6 +286,7 @@ export async function addPhoto(params: {
         const { data, error } = await supabase
           .from('photos')
           .insert({
+            event_id: 'main-event',
             image_url: finalUrl,
             caption: caption ? caption.trim() : null,
             status: 'active',
@@ -293,7 +330,7 @@ export async function addPhoto(params: {
     if (res.ok) {
       const createdPhoto = (await res.json()) as Photo
       const currentLocal = getLocalPhotos()
-      saveLocalPhotos([createdPhoto, ...currentLocal])
+      saveLocalPhotos([createdPhoto, ...currentLocal], true) // notify = true for upload
       return createdPhoto
     } else {
       const errJson = await res.json().catch(() => ({}))
@@ -367,7 +404,7 @@ export async function updatePhotoStatus(
     return p
   })
 
-  saveLocalPhotos(updatedLocal)
+  saveLocalPhotos(updatedLocal, true)
   return true
 }
 
@@ -399,7 +436,7 @@ export async function deletePhotoPermanently(photoId: string): Promise<boolean> 
 
   const currentLocal = getLocalPhotos()
   const updatedLocal = currentLocal.filter((p) => p.id !== photoId)
-  saveLocalPhotos(updatedLocal)
+  saveLocalPhotos(updatedLocal, true)
 
   return true
 }
