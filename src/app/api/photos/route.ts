@@ -1,122 +1,97 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
 import { Photo } from '@/types/database.types'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const DATA_DIR = path.join(process.cwd(), 'data')
-const DATA_FILE = path.join(DATA_DIR, 'photos_store.json')
-const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads')
+// Safe writable directory in /tmp for serverless environments (Vercel, AWS, etc.)
+const TMP_DIR = path.join(os.tmpdir(), 'photowall_data')
+const TMP_FILE = path.join(TMP_DIR, 'photos_store.json')
 
-// Initial default photos if store is empty
 const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
     id: 'demo-1',
+    event_id: 'main-event',
+    uploader_token: 'demo-uploader',
+    user_id: null,
     image_url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?q=80&w=1000&auto=format&fit=crop',
     caption: 'Superbe moment partagé ✨',
     status: 'active',
-    uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
     deleted_at: null,
   },
   {
     id: 'demo-2',
+    event_id: 'main-event',
+    uploader_token: 'demo-uploader',
+    user_id: null,
     image_url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1000&auto=format&fit=crop',
     caption: 'Une ambiance chaleureuse 🌟',
     status: 'active',
-    uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
     deleted_at: null,
   },
   {
     id: 'demo-3',
+    event_id: 'main-event',
+    uploader_token: 'demo-uploader',
+    user_id: null,
     image_url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1000&auto=format&fit=crop',
     caption: 'Souvenir féerique 🌌',
     status: 'active',
-    uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
     deleted_at: null,
   },
 ]
 
-function ensureDirectories() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true })
-  }
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true })
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(INITIAL_DEMO_PHOTOS, null, 2), 'utf-8')
-  }
+// Global in-memory store for serverless runtime
+declare global {
+  // eslint-disable-next-line no-var
+  var __PHOTOWALL_GLOBAL_STORE__: Photo[] | undefined
 }
 
-// Convert base64 data URL to static file on disk
-function saveBase64Image(dataUrl: string): string {
-  ensureDirectories()
-  try {
-    const parts = dataUrl.split(';base64,')
-    if (parts.length === 2) {
-      const header = parts[0]
-      const base64Data = parts[1]
-      let ext = 'jpg'
-      if (header.includes('png')) ext = 'png'
-      else if (header.includes('webp')) ext = 'webp'
-      else if (header.includes('gif')) ext = 'gif'
-
-      const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
-      const filepath = path.join(UPLOADS_DIR, filename)
-
-      fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
-      return `/uploads/${filename}`
-    }
-  } catch (err) {
-    console.error('Error saving base64 image:', err)
-  }
-  return dataUrl
-}
-
-function readPhotos(): Photo[] {
-  ensureDirectories()
-  try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8')
-    const parsed = JSON.parse(raw) as Photo[]
-    if (!Array.isArray(parsed)) return INITIAL_DEMO_PHOTOS
-
-    // Sanitize any existing photos with raw base64 or broken data
-    let modified = false
-    const sanitized = parsed.map((p) => {
-      if (p.image_url && p.image_url.startsWith('data:')) {
-        p.image_url = saveBase64Image(p.image_url)
-        modified = true
+function getPhotosStore(): Photo[] {
+  if (!globalThis.__PHOTOWALL_GLOBAL_STORE__) {
+    try {
+      if (fs.existsSync(TMP_FILE)) {
+        const raw = fs.readFileSync(TMP_FILE, 'utf-8')
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          globalThis.__PHOTOWALL_GLOBAL_STORE__ = parsed
+          return parsed
+        }
       }
-      return p
-    }).filter((p) => p && p.image_url && p.image_url.trim().length > 0)
-
-    if (modified) {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(sanitized, null, 2), 'utf-8')
+    } catch {
+      // /tmp read fallback
     }
-
-    return sanitized
-  } catch {
-    return INITIAL_DEMO_PHOTOS
+    globalThis.__PHOTOWALL_GLOBAL_STORE__ = [...INITIAL_DEMO_PHOTOS]
   }
+  return globalThis.__PHOTOWALL_GLOBAL_STORE__
 }
 
-function savePhotos(photos: Photo[]) {
-  ensureDirectories()
-  fs.writeFileSync(DATA_FILE, JSON.stringify(photos, null, 2), 'utf-8')
+function savePhotosStore(photos: Photo[]) {
+  globalThis.__PHOTOWALL_GLOBAL_STORE__ = photos
+  try {
+    if (!fs.existsSync(TMP_DIR)) {
+      fs.mkdirSync(TMP_DIR, { recursive: true })
+    }
+    fs.writeFileSync(TMP_FILE, JSON.stringify(photos, null, 2), 'utf-8')
+  } catch {
+    // /tmp write fallback
+  }
 }
 
 /**
  * GET /api/photos
+ * Return all active photos for the shared event wall
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const mode = searchParams.get('mode')
-  const photos = readPhotos()
+  const photos = getPhotosStore()
 
   if (mode === 'admin') {
     return NextResponse.json(photos, {
@@ -127,7 +102,7 @@ export async function GET(req: NextRequest) {
   }
 
   const activePhotos = photos
-    .filter((p) => p.status === 'active')
+    .filter((p) => p && p.status === 'active' && p.image_url)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
   return NextResponse.json(activePhotos, {
@@ -139,11 +114,10 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/photos
- * Supports FormData & JSON payloads
+ * Create new photo entry (verifies uploader token & uploads image)
  */
 export async function POST(req: NextRequest) {
   try {
-    ensureDirectories()
     let finalImageUrl = ''
     let caption: string | null = null
     let uploaderToken: string | null = null
@@ -160,45 +134,42 @@ export async function POST(req: NextRequest) {
       if (file && file.size > 0) {
         const bytes = await file.arrayBuffer()
         const buffer = Buffer.from(bytes)
-        const ext = file.name.split('.').pop() || 'jpg'
-        const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
-        const filepath = path.join(UPLOADS_DIR, filename)
-
-        fs.writeFileSync(filepath, buffer)
-        finalImageUrl = `/uploads/${filename}`
+        const mimeType = file.type || 'image/jpeg'
+        const base64Str = buffer.toString('base64')
+        finalImageUrl = `data:${mimeType};base64,${base64Str}`
       } else if (rawUrl) {
-        finalImageUrl = rawUrl.startsWith('data:') ? saveBase64Image(rawUrl) : rawUrl
+        finalImageUrl = rawUrl
       }
     } else {
       const body = await req.json()
-      const rawUrl = body.imageUrl
+      finalImageUrl = body.imageUrl || ''
       caption = body.caption || null
       uploaderToken = body.uploaderToken || null
-
-      if (typeof rawUrl === 'string' && rawUrl.startsWith('data:')) {
-        finalImageUrl = saveBase64Image(rawUrl)
-      } else {
-        finalImageUrl = rawUrl
-      }
     }
 
     if (!finalImageUrl) {
       return NextResponse.json({ error: 'Fichier image manquant ou invalide' }, { status: 400 })
     }
 
+    if (!uploaderToken) {
+      return NextResponse.json({ error: 'Identifiant d\'uploader requis' }, { status: 400 })
+    }
+
     const newPhoto: Photo = {
       id: `photo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      event_id: 'main-event',
+      uploader_token: uploaderToken,
+      user_id: null,
       image_url: finalImageUrl,
       caption: caption ? caption.trim() : null,
       status: 'active',
-      uploader_token: uploaderToken || null,
       created_at: new Date().toISOString(),
       deleted_at: null,
     }
 
-    const currentPhotos = readPhotos()
+    const currentPhotos = getPhotosStore()
     const updatedPhotos = [newPhoto, ...currentPhotos]
-    savePhotos(updatedPhotos)
+    savePhotosStore(updatedPhotos)
 
     return NextResponse.json(newPhoto, { status: 201 })
   } catch (err: unknown) {
@@ -210,39 +181,46 @@ export async function POST(req: NextRequest) {
 
 /**
  * PATCH /api/photos
+ * Update photo status - STRICT OWNERSHIP VERIFICATION (uploaderToken check)
  */
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json()
     const { photoId, status, uploaderToken } = body
 
-    if (!photoId || !status) {
+    if (!photoId || !status || !uploaderToken) {
       return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400 })
     }
 
-    const photos = readPhotos()
-    let updated = false
+    const photos = getPhotosStore()
+    const targetPhoto = photos.find((p) => p.id === photoId)
+
+    if (!targetPhoto) {
+      return NextResponse.json({ error: 'Photo non trouvée' }, { status: 404 })
+    }
+
+    // Strict Backend Ownership Check
+    const isOwner = targetPhoto.uploader_token === uploaderToken || uploaderToken === 'admin'
+    if (!isOwner) {
+      return NextResponse.json(
+        { error: 'Action non autorisée. Vous n\'êtes pas le propriétaire de cette photo.' },
+        { status: 403 }
+      )
+    }
 
     const updatedPhotos = photos.map((p) => {
       if (p.id === photoId) {
-        if (!uploaderToken || p.uploader_token === uploaderToken || uploaderToken === 'admin') {
-          updated = true
-          return {
-            ...p,
-            status,
-            deleted_at: status === 'deleted' ? new Date().toISOString() : null,
-          }
+        return {
+          ...p,
+          status,
+          deleted_at: status === 'deleted' ? new Date().toISOString() : null,
         }
       }
       return p
     })
 
-    if (updated) {
-      savePhotos(updatedPhotos)
-      return NextResponse.json({ success: true })
-    } else {
-      return NextResponse.json({ error: 'Action non autorisée' }, { status: 403 })
-    }
+    savePhotosStore(updatedPhotos)
+    return NextResponse.json({ success: true, message: 'Photo mise à jour' })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Erreur serveur'
     return NextResponse.json({ error: msg }, { status: 500 })
@@ -251,19 +229,35 @@ export async function PATCH(req: NextRequest) {
 
 /**
  * DELETE /api/photos
+ * Hard delete - STRICT OWNERSHIP VERIFICATION
  */
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
+    const uploaderToken = searchParams.get('uploaderToken')
 
-    if (!id) {
-      return NextResponse.json({ error: 'ID manquant' }, { status: 400 })
+    if (!id || !uploaderToken) {
+      return NextResponse.json({ error: 'ID ou jeton uploader manquant' }, { status: 400 })
     }
 
-    const photos = readPhotos()
+    const photos = getPhotosStore()
+    const targetPhoto = photos.find((p) => p.id === id)
+
+    if (!targetPhoto) {
+      return NextResponse.json({ error: 'Photo non trouvée' }, { status: 404 })
+    }
+
+    // Strict Ownership check
+    if (targetPhoto.uploader_token !== uploaderToken && uploaderToken !== 'admin') {
+      return NextResponse.json(
+        { error: 'Action non autorisée. Vous n\'êtes pas le propriétaire de cette photo.' },
+        { status: 403 }
+      )
+    }
+
     const filtered = photos.filter((p) => p.id !== id)
-    savePhotos(filtered)
+    savePhotosStore(filtered)
 
     return NextResponse.json({ success: true })
   } catch (err: unknown) {

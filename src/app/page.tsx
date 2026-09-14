@@ -11,6 +11,8 @@ import path from 'path'
 
 import { isSupabaseConfigured } from '@/lib/photos-service'
 
+import os from 'os'
+
 export const revalidate = 0
 
 export default async function HomePage() {
@@ -35,12 +37,12 @@ export default async function HomePage() {
   // Fallback to shared server data store
   if (!photos || photos.length === 0) {
     try {
-      const storePath = path.join(process.cwd(), 'data', 'photos_store.json')
+      const storePath = path.join(os.tmpdir(), 'photowall_data', 'photos_store.json')
       if (fs.existsSync(storePath)) {
         const raw = fs.readFileSync(storePath, 'utf-8')
         const parsed = JSON.parse(raw) as Photo[]
         photos = parsed
-          .filter((p) => p.status === 'active')
+          .filter((p) => p && p.status === 'active')
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 6)
       }

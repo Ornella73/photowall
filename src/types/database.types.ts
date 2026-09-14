@@ -14,28 +14,34 @@ export interface Database {
       photos: {
         Row: {
           id: string
-          image_url: string
-          caption?: string | null
-          status: PhotoStatus
+          event_id: string
           uploader_token: string | null
+          user_id: string | null
+          image_url: string
+          caption: string | null
+          status: PhotoStatus
           created_at: string
           deleted_at: string | null
         }
         Insert: {
           id?: string
+          event_id?: string
+          uploader_token?: string | null
+          user_id?: string | null
           image_url: string
           caption?: string | null
           status?: PhotoStatus
-          uploader_token?: string | null
           created_at?: string
           deleted_at?: string | null
         }
         Update: {
           id?: string
+          event_id?: string
+          uploader_token?: string | null
+          user_id?: string | null
           image_url?: string
           caption?: string | null
           status?: PhotoStatus
-          uploader_token?: string | null
           created_at?: string
           deleted_at?: string | null
         }
