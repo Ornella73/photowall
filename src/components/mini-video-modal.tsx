@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Play, Pause, SkipForward, SkipBack, Maximize2, Minimize2, Volume2, VolumeX, X, Download, Film } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,7 @@ export function MiniVideoModal({ isOpen, onClose, photos }: MiniVideoModalProps)
   const activePhotos = photos.filter((p) => p.status === 'active')
 
   // Ambient sound synthesis via Web Audio API
-  const playCozyChime = () => {
+  const playCozyChime = useCallback(() => {
     if (!audioEnabled) return
     try {
       if (!audioCtxRef.current) {
@@ -42,7 +42,7 @@ export function MiniVideoModal({ isOpen, onClose, photos }: MiniVideoModalProps)
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       
-      const freqs = [261.63, 329.63, 392.00, 523.25, 659.25] // C major chord tones
+      const freqs = [261.63, 329.63, 392.00, 523.25, 659.25]
       const freq = freqs[Math.floor(Math.random() * freqs.length)]
 
       osc.type = 'sine'
@@ -60,7 +60,7 @@ export function MiniVideoModal({ isOpen, onClose, photos }: MiniVideoModalProps)
     } catch {
       // Audio synth unsupported
     }
-  }
+  }, [audioEnabled])
 
   // Timer loop for slideshow video playback
   useEffect(() => {
@@ -74,7 +74,7 @@ export function MiniVideoModal({ isOpen, onClose, photos }: MiniVideoModalProps)
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [isOpen, isPlaying, currentIndex, speed, activePhotos.length, audioEnabled])
+  }, [isOpen, isPlaying, currentIndex, speed, activePhotos.length, playCozyChime])
 
   // Reset index when opening modal
   useEffect(() => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Link as LinkIcon, Image as ImageIcon, Camera, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Smartphone } from 'lucide-react'
 import Link from 'next/link'
@@ -29,8 +29,17 @@ export default function UploadPage() {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
   const streamRef = useRef<MediaStream | null>(null)
 
+  // Stop Camera Stream
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+    setIsCameraActive(false)
+  }, [])
+
   // Start WebCam Stream (PC / HTTPS)
-  const startCamera = async (mode = facingMode) => {
+  const startCamera = useCallback(async (mode = facingMode) => {
     stopCamera()
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return
@@ -47,15 +56,7 @@ export default function UploadPage() {
     } catch {
       setIsCameraActive(false)
     }
-  }
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-    setIsCameraActive(false)
-  }
+  }, [facingMode, stopCamera])
 
   const toggleCameraFacing = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment'
@@ -94,7 +95,7 @@ export default function UploadPage() {
       stopCamera()
     }
     return () => stopCamera()
-  }, [activeTab])
+  }, [activeTab, startCamera, stopCamera])
 
   // Handle native camera capture / file selection (Mobile + PC)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
