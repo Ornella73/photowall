@@ -9,23 +9,27 @@ import { Photo } from '@/types/database.types'
 import fs from 'fs'
 import path from 'path'
 
+import { isSupabaseConfigured } from '@/lib/photos-service'
+
 export const revalidate = 0
 
 export default async function HomePage() {
   let photos: Photo[] | null = null
 
-  try {
-    const supabase = await createClient()
-    const { data } = await supabase
-      .from('photos')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(6)
+  if (isSupabaseConfigured()) {
+    try {
+      const supabase = await createClient()
+      const { data } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(6)
 
-    photos = data
-  } catch {
-    photos = null
+      photos = data
+    } catch {
+      photos = null
+    }
   }
 
   // Fallback to shared server data store

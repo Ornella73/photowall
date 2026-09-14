@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Upload, Link as LinkIcon, Image as ImageIcon, Camera, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Loader2, ArrowLeft } from 'lucide-react'
+import { Upload, Link as LinkIcon, Image as ImageIcon, Camera, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Loader2, ArrowLeft, Smartphone } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -23,19 +23,17 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  // Camera Live Stream States
+  // WebCam Live Stream States for PC / HTTPS
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [isCameraActive, setIsCameraActive] = useState(false)
-  const [cameraError, setCameraError] = useState<string | null>(null)
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment')
   const streamRef = useRef<MediaStream | null>(null)
 
-  // Start Camera Stream
+  // Start WebCam Stream (PC / HTTPS)
   const startCamera = async (mode = facingMode) => {
-    setCameraError(null)
     stopCamera()
-
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
@@ -43,16 +41,14 @@ export default function UploadPage() {
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.play()
+        videoRef.current.play().catch(() => {})
       }
       setIsCameraActive(true)
     } catch {
-      setCameraError('Accès à la caméra refusé ou non supporté. Vous pouvez utiliser le sélecteur de fichier.')
       setIsCameraActive(false)
     }
   }
 
-  // Stop Camera Stream
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
@@ -61,14 +57,13 @@ export default function UploadPage() {
     setIsCameraActive(false)
   }
 
-  // Flip Camera Front / Back
   const toggleCameraFacing = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment'
     setFacingMode(nextMode)
     startCamera(nextMode)
   }
 
-  // Capture Photo Snapshot from Live Stream
+  // WebCam snapshot capture (PC)
   const captureCameraSnapshot = () => {
     if (!videoRef.current) return
     const video = videoRef.current
@@ -81,7 +76,6 @@ export default function UploadPage() {
       const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
       setPreviewUrl(dataUrl)
 
-      // Convert DataURL to File object for backend
       canvas.toBlob((blob) => {
         if (blob) {
           const snapshotFile = new File([blob], `camera_${Date.now()}.jpg`, { type: 'image/jpeg' })
@@ -93,7 +87,6 @@ export default function UploadPage() {
     }
   }
 
-  // Stop camera when switching tab or leaving
   useEffect(() => {
     if (activeTab === 'camera') {
       startCamera()
@@ -103,7 +96,7 @@ export default function UploadPage() {
     return () => stopCamera()
   }, [activeTab])
 
-  // Handle file selection
+  // Handle native camera capture / file selection (Mobile + PC)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile) {
@@ -113,6 +106,7 @@ export default function UploadPage() {
       }
       setError(null)
       setFile(selectedFile)
+      stopCamera()
       const reader = new FileReader()
       reader.onloadend = () => {
         setPreviewUrl(reader.result as string)
@@ -128,6 +122,7 @@ export default function UploadPage() {
     if (droppedFile && droppedFile.type.startsWith('image/')) {
       setError(null)
       setFile(droppedFile)
+      stopCamera()
       const reader = new FileReader()
       reader.onloadend = () => {
         setPreviewUrl(reader.result as string)
@@ -147,7 +142,7 @@ export default function UploadPage() {
       const uploaderToken = getUploaderToken()
 
       if (!previewUrl && !file && !imageUrl) {
-        throw new Error('Veuillez prendre ou sélectionner une image.')
+        throw new Error('Veuillez prendre ou sélectionner une photo.')
       }
 
       await addPhoto({
@@ -161,7 +156,7 @@ export default function UploadPage() {
       setSuccess(true)
       setTimeout(() => {
         router.push('/wall')
-      }, 1200)
+      }, 1000)
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Une erreur est survenue lors de l\'envoi.'
       setError(errorMessage)
@@ -171,7 +166,7 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8 pb-24 sm:pb-12">
+    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8 pb-28 sm:pb-12">
       {/* Top Header Navigation */}
       <div className="flex items-center justify-between mb-6">
         <Link
@@ -193,7 +188,7 @@ export default function UploadPage() {
           Ajouter une <span className="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">Photo</span>
         </h1>
         <p className="text-stone-400 text-sm max-w-md mx-auto">
-          Prenez une photo en direct ou choisissez un fichier pour le mur interactif.
+          Prenez une photo en direct avec votre téléphone ou PC pour l&apos;afficher sur le mur partagé.
         </p>
       </div>
 
@@ -204,7 +199,7 @@ export default function UploadPage() {
             Mode d&apos;envoi
           </CardTitle>
           <CardDescription className="text-stone-400">
-            Utilisez l&apos;appareil photo de votre téléphone/ordinateur ou déposez une image.
+            Prenez une photo instantanée ou choisissez un fichier.
           </CardDescription>
         </CardHeader>
 
@@ -213,7 +208,7 @@ export default function UploadPage() {
             <Tabs defaultValue="camera" onValueChange={(val) => setActiveTab(val as 'camera' | 'file' | 'url')}>
               <TabsList className="grid w-full grid-cols-3 bg-stone-950 p-1 border border-stone-800 rounded-xl">
                 <TabsTrigger value="camera" className="flex items-center gap-1.5 text-xs sm:text-sm">
-                  <Camera className="h-4 w-4 text-amber-400" /> Caméra
+                  <Camera className="h-4 w-4 text-amber-400" /> Appareil Photo
                 </TabsTrigger>
                 <TabsTrigger value="file" className="flex items-center gap-1.5 text-xs sm:text-sm">
                   <ImageIcon className="h-4 w-4 text-amber-400" /> Fichier
@@ -223,11 +218,11 @@ export default function UploadPage() {
                 </TabsTrigger>
               </TabsList>
 
-              {/* Camera Tab */}
+              {/* Camera Tab (Mobile & PC) */}
               <TabsContent value="camera" className="space-y-4 pt-4">
                 {previewUrl && activeTab === 'camera' ? (
                   <div className="flex flex-col items-center gap-3">
-                    <p className="text-xs font-semibold text-amber-400">Photo capturée !</p>
+                    <p className="text-xs font-semibold text-amber-400">Photo prête à être publiée !</p>
                     <Button
                       type="button"
                       variant="outline"
@@ -243,60 +238,61 @@ export default function UploadPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="relative aspect-video w-full overflow-hidden rounded-2xl border-2 border-dashed border-amber-900/40 bg-black flex flex-col items-center justify-center">
-                    {/* Live Stream */}
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      className={`h-full w-full object-cover ${isCameraActive ? 'block' : 'hidden'}`}
-                    />
-
-                    {!isCameraActive && (
-                      <div className="flex flex-col items-center gap-3 p-6 text-center">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-400">
-                          <Camera className="h-7 w-7" />
-                        </div>
-                        {cameraError ? (
-                          <p className="text-xs text-rose-400">{cameraError}</p>
-                        ) : (
-                          <p className="text-xs text-stone-400">Initialisation de la caméra...</p>
-                        )}
-                        <label className="cursor-pointer rounded-xl bg-amber-500/20 px-4 py-2 text-xs font-bold text-amber-300 hover:bg-amber-500/30 transition-colors">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={handleFileChange}
-                            className="hidden"
-                          />
-                          Ouvrir l&apos;appareil photo mobile 📱
-                        </label>
+                  <div className="space-y-4">
+                    {/* Primary Mobile Native Camera Button */}
+                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-amber-500/50 rounded-2xl bg-amber-500/10 text-center space-y-3">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500 text-stone-950 shadow-lg shadow-amber-600/30">
+                        <Smartphone className="h-8 w-8" />
                       </div>
-                    )}
+                      <div>
+                        <h4 className="text-base font-bold text-amber-100">Caméra Smartphone Directe</h4>
+                        <p className="text-xs text-stone-400 mt-0.5">
+                          Ouvre directement l&apos;appareil photo de votre téléphone
+                        </p>
+                      </div>
 
-                    {/* Camera Controls Overlay */}
+                      <label className="cursor-pointer inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-3 text-sm font-black text-stone-950 shadow-xl hover:scale-105 transition-transform active:scale-95">
+                        <Camera className="h-5 w-5" />
+                        <span>Prendre une photo 📸</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handleFileChange}
+                          className="hidden"
+                          id="mobile-camera-input"
+                        />
+                      </label>
+                    </div>
+
+                    {/* PC WebCam Live View Container (If WebCam stream is active) */}
                     {isCameraActive && (
-                      <div className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center gap-4">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="icon"
-                          onClick={toggleCameraFacing}
-                          className="h-10 w-10 rounded-full bg-stone-900/80 text-amber-300 border border-stone-700"
-                          title="Changer de caméra"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-
-                        <Button
-                          type="button"
-                          onClick={captureCameraSnapshot}
-                          className="h-14 w-14 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 text-stone-950 shadow-xl border-4 border-white/80 hover:scale-105 transition-transform"
-                          title="Prendre la photo"
-                        >
-                          <Camera className="h-6 w-6" />
-                        </Button>
+                      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-amber-900/40 bg-black flex flex-col items-center justify-center mt-4">
+                        <video
+                          ref={videoRef}
+                          playsInline
+                          muted
+                          className="h-full w-full object-cover"
+                        />
+                        <div className="absolute bottom-3 left-0 right-0 z-20 flex items-center justify-center gap-3">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="icon"
+                            onClick={toggleCameraFacing}
+                            className="h-10 w-10 rounded-full bg-stone-900/80 text-amber-300 border border-stone-700"
+                            title="Changer de caméra"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={captureCameraSnapshot}
+                            className="h-12 w-12 rounded-full bg-amber-500 text-stone-950 font-bold shadow-lg hover:scale-105"
+                          >
+                            <Camera className="h-5 w-5" />
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -348,7 +344,7 @@ export default function UploadPage() {
               </TabsContent>
             </Tabs>
 
-            {/* Live Polaroid Preview & Caption Input (Requirement 6) */}
+            {/* Live Polaroid Preview & Caption Input */}
             {previewUrl && (
               <div className="space-y-4 pt-2 border-t border-amber-900/30">
                 <div className="space-y-2">
@@ -359,7 +355,7 @@ export default function UploadPage() {
                   <Input
                     id="caption-input"
                     type="text"
-                    placeholder="Ex: Moment inoubliable entre amis ✨"
+                    placeholder="Ex: Souvenir entre amis ✨"
                     value={caption}
                     onChange={(e) => setCaption(e.target.value)}
                     maxLength={100}

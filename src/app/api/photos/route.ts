@@ -3,6 +3,9 @@ import fs from 'fs'
 import path from 'path'
 import { Photo } from '@/types/database.types'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DATA_FILE = path.join(DATA_DIR, 'photos_store.json')
 const UPLOADS_DIR = path.join(process.cwd(), 'public', 'uploads')
@@ -38,7 +41,6 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
   },
 ]
 
-// Ensure directories exist
 function ensureDirectories() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
@@ -51,18 +53,17 @@ function ensureDirectories() {
   }
 }
 
-// Read photos from file
 function readPhotos(): Photo[] {
   ensureDirectories()
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf-8')
-    return JSON.parse(raw) as Photo[]
+    const parsed = JSON.parse(raw) as Photo[]
+    return Array.isArray(parsed) ? parsed : INITIAL_DEMO_PHOTOS
   } catch {
     return INITIAL_DEMO_PHOTOS
   }
 }
 
-// Write photos to file
 function savePhotos(photos: Photo[]) {
   ensureDirectories()
   fs.writeFileSync(DATA_FILE, JSON.stringify(photos, null, 2), 'utf-8')
@@ -70,7 +71,6 @@ function savePhotos(photos: Photo[]) {
 
 /**
  * GET /api/photos
- * Return photos list (optional query parameter mode=admin to return deleted photos too)
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -78,45 +78,82 @@ export async function GET(req: NextRequest) {
   const photos = readPhotos()
 
   if (mode === 'admin') {
-    return NextResponse.json(photos)
+    return NextResponse.json(photos, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      },
+    })
   }
 
-  // Active photos sorted by newest first
   const activePhotos = photos
     .filter((p) => p.status === 'active')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-  return NextResponse.json(activePhotos)
+  return NextResponse.json(activePhotos, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    },
+  })
 }
 
 /**
  * POST /api/photos
- * Create new photo entry (supports base64 image data URL or direct image URL)
+ * Supports FormData (for mobile camera & file uploads) AND JSON (for URL / base64)
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const { imageUrl, caption, uploaderToken } = body
-
-    if (!imageUrl) {
-      return NextResponse.json({ error: 'Image URL or file required' }, { status: 400 })
-    }
-
     ensureDirectories()
-    let finalImageUrl = imageUrl
+    let finalImageUrl = ''
+    let caption: string | null = null
+    let uploaderToken: string | null = null
 
-    // If imageUrl is a Data URL (base64 image), save it to public/uploads
-    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-      const matches = imageUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/)
-      if (matches && matches.length === 3) {
-        const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
-        const base64Data = matches[2]
+    const contentType = req.headers.get('content-type') || ''
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData()
+      const file = formData.get('file') as File | null
+      caption = (formData.get('caption') as string) || null
+      uploaderToken = (formData.get('uploaderToken') as string) || null
+      const rawUrl = formData.get('imageUrl') as string | null
+
+      if (file && file.size > 0) {
+        const bytes = await file.arrayBuffer()
+        const buffer = Buffer.from(bytes)
+        const ext = file.name.split('.').pop() || 'jpg'
         const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
         const filepath = path.join(UPLOADS_DIR, filename)
 
-        fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
+        fs.writeFileSync(filepath, buffer)
         finalImageUrl = `/uploads/${filename}`
+      } else if (rawUrl) {
+        finalImageUrl = rawUrl
       }
+    } else {
+      const body = await req.json()
+      const rawUrl = body.imageUrl
+      caption = body.caption || null
+      uploaderToken = body.uploaderToken || null
+
+      if (typeof rawUrl === 'string' && rawUrl.startsWith('data:image/')) {
+        const matches = rawUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/)
+        if (matches && matches.length === 3) {
+          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
+          const base64Data = matches[2]
+          const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
+          const filepath = path.join(UPLOADS_DIR, filename)
+
+          fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
+          finalImageUrl = `/uploads/${filename}`
+        } else {
+          finalImageUrl = rawUrl
+        }
+      } else {
+        finalImageUrl = rawUrl
+      }
+    }
+
+    if (!finalImageUrl) {
+      return NextResponse.json({ error: 'Fichier image manquant ou invalide' }, { status: 400 })
     }
 
     const newPhoto: Photo = {
@@ -135,14 +172,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(newPhoto, { status: 201 })
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Server error'
+    console.error('Error in POST /api/photos:', err)
+    const msg = err instanceof Error ? err.message : 'Erreur serveur lors de l\'enregistrement'
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
 /**
  * PATCH /api/photos
- * Update photo status (active <-> deleted)
  */
 export async function PATCH(req: NextRequest) {
   try {
@@ -150,7 +187,7 @@ export async function PATCH(req: NextRequest) {
     const { photoId, status, uploaderToken } = body
 
     if (!photoId || !status) {
-      return NextResponse.json({ error: 'Missing photoId or status' }, { status: 400 })
+      return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400 })
     }
 
     const photos = readPhotos()
@@ -158,7 +195,6 @@ export async function PATCH(req: NextRequest) {
 
     const updatedPhotos = photos.map((p) => {
       if (p.id === photoId) {
-        // Verify owner token if provided or allow admin update
         if (!uploaderToken || p.uploader_token === uploaderToken || uploaderToken === 'admin') {
           updated = true
           return {
@@ -175,17 +211,16 @@ export async function PATCH(req: NextRequest) {
       savePhotos(updatedPhotos)
       return NextResponse.json({ success: true })
     } else {
-      return NextResponse.json({ error: 'Photo not found or unauthorized' }, { status: 403 })
+      return NextResponse.json({ error: 'Action non autorisée' }, { status: 403 })
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Server error'
+    const msg = err instanceof Error ? err.message : 'Erreur serveur'
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
 /**
  * DELETE /api/photos
- * Delete photo permanently (Admin action)
  */
 export async function DELETE(req: NextRequest) {
   try {
@@ -193,7 +228,7 @@ export async function DELETE(req: NextRequest) {
     const id = searchParams.get('id')
 
     if (!id) {
-      return NextResponse.json({ error: 'Missing photo ID' }, { status: 400 })
+      return NextResponse.json({ error: 'ID manquant' }, { status: 400 })
     }
 
     const photos = readPhotos()
@@ -202,7 +237,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Server error'
+    const msg = err instanceof Error ? err.message : 'Erreur serveur'
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

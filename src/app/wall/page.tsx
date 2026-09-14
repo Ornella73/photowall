@@ -103,12 +103,15 @@ export default function WallPage() {
 
     loadPhotos()
 
-    // Setup Fallback Auto-Polling (Intervalle de 4 sec) pour mise à jour continue pour tous
+    // Setup Fallback Auto-Polling (Intervalle de 2 sec) pour mise à jour en temps réel pour tous
     const pollingInterval = setInterval(async () => {
       try {
         const updated = await getActivePhotos()
         if (isMounted) {
           setPhotos((prev) => {
+            if (updated.length > prev.length) {
+              showNotification('✨ Une nouvelle photo vient d\'apparaître sur le mur !')
+            }
             if (updated.length !== prev.length || updated.some((p, i) => p.id !== prev[i]?.id)) {
               return updated
             }
@@ -118,7 +121,7 @@ export default function WallPage() {
       } catch {
         // Silent polling fail
       }
-    }, 4000)
+    }, 2000)
 
     // Setup Local Storage & BroadcastChannel listeners
     const handleLocalUpdate = async () => {

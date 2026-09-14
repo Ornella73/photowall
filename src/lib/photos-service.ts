@@ -6,7 +6,7 @@ const LOCAL_STORAGE_KEY = 'photowall_local_photos_v1'
 const BROADCAST_CHANNEL_NAME = 'photowall_realtime_channel'
 
 /**
- * Check if the Supabase environment URL is configured with a real project.
+ * Check if Supabase environment is configured with a real external project.
  */
 export function isSupabaseConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -16,14 +16,14 @@ export function isSupabaseConfigured(): boolean {
   if (url.includes('example.com')) return false
   try {
     const parsed = new URL(url)
-    return parsed.hostname.endsWith('.supabase.co') || parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+    return parsed.hostname.endsWith('.supabase.co')
   } catch {
     return false
   }
 }
 
 /**
- * Initial sample photos when local storage is empty
+ * Initial sample photos when storage is empty
  */
 const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
@@ -56,52 +56,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 ]
 
 /**
- * Helper to compress image file into JPEG Data URL for payload transmission
- */
-export function compressImageFile(file: File): Promise<string> {
-  return new Promise((resolve) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const img = new Image()
-      img.onload = () => {
-        const MAX_WIDTH = 1200
-        const MAX_HEIGHT = 1200
-        let width = img.width
-        let height = img.height
-
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height = Math.round((height * MAX_WIDTH) / width)
-            width = MAX_WIDTH
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width = Math.round((width * MAX_HEIGHT) / height)
-            height = MAX_HEIGHT
-          }
-        }
-
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height)
-          resolve(canvas.toDataURL('image/jpeg', 0.85))
-        } else {
-          resolve((e.target?.result as string) || '')
-        }
-      }
-      img.onerror = () => resolve((reader.result as string) || '')
-      img.src = e.target?.result as string
-    }
-    reader.onerror = () => resolve('')
-    reader.readAsDataURL(file)
-  })
-}
-
-/**
- * Local Storage Helpers (Fallback)
+ * Local Storage Fallback Helpers
  */
 export function getLocalPhotos(): Photo[] {
   if (typeof window === 'undefined') return INITIAL_DEMO_PHOTOS
@@ -127,9 +82,6 @@ export function saveLocalPhotos(photos: Photo[]) {
   }
 }
 
-/**
- * Realtime BroadcastChannel for cross-tab local updates
- */
 function notifyBroadcastChannel() {
   if (typeof window === 'undefined') return
   try {
@@ -143,10 +95,9 @@ function notifyBroadcastChannel() {
 }
 
 /**
- * Get all active photos globally (from Supabase or server API /api/photos)
+ * Get all active photos globally (from Supabase or shared server API /api/photos)
  */
 export async function getActivePhotos(): Promise<Photo[]> {
-  // Try Supabase first if configured
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
@@ -160,20 +111,23 @@ export async function getActivePhotos(): Promise<Photo[]> {
         return data
       }
     } catch {
-      // Supabase network request failed, fallback to server API
+      // Supabase network failure
     }
   }
 
-  // Server Shared API /api/photos
+  // Fetch shared server API
   try {
-    const res = await fetch('/api/photos', { cache: 'no-store' })
+    const res = await fetch('/api/photos', {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
     if (res.ok) {
       const serverPhotos = (await res.json()) as Photo[]
       saveLocalPhotos(serverPhotos)
       return serverPhotos
     }
   } catch {
-    // Server API failed, fallback to local storage
+    // network fallback
   }
 
   const local = getLocalPhotos()
@@ -181,7 +135,7 @@ export async function getActivePhotos(): Promise<Photo[]> {
 }
 
 /**
- * Get all photos for Admin view (active and deleted)
+ * Get all photos for Admin view
  */
 export async function getAllAdminPhotos(): Promise<Photo[]> {
   if (isSupabaseConfigured()) {
@@ -196,7 +150,7 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
         return data
       }
     } catch {
-      // Supabase network failure, fallback to server API
+      // Supabase failure
     }
   }
 
@@ -213,7 +167,7 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
 }
 
 /**
- * Upload & Create Photo (saves globally for all users via Supabase or /api/photos)
+ * Upload & Create Photo (Uses FormData to send photos reliably from Mobile or PC)
  */
 export async function addPhoto(params: {
   imageUrl: string
@@ -222,12 +176,11 @@ export async function addPhoto(params: {
   uploaderToken: string
 }): Promise<Photo> {
   const { imageUrl, file, caption, uploaderToken } = params
-  let finalUrl = imageUrl
 
-  // If Supabase is configured, upload to Supabase DB & Storage
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
+      let finalUrl = imageUrl
 
       if (file) {
         const fileExt = file.name.split('.').pop()
@@ -264,29 +217,29 @@ export async function addPhoto(params: {
         }
       }
     } catch {
-      // Continue to server API mode if Supabase fails
+      // Continue to server API
     }
   }
 
-  // Prepare file payload for Server API
-  if (file && (!finalUrl || finalUrl === imageUrl)) {
-    finalUrl = await compressImageFile(file)
-  }
-
-  if (!finalUrl) {
-    throw new Error("L'image n'a pas pu être préparée pour l'envoi.")
-  }
-
-  // Upload to Global Server API /api/photos so ALL users see it
+  // Upload to Global Server API /api/photos using FormData
   try {
+    const formData = new FormData()
+    if (file) {
+      formData.append('file', file, file.name || 'mobile_photo.jpg')
+    }
+    if (imageUrl) {
+      formData.append('imageUrl', imageUrl)
+    }
+    if (caption) {
+      formData.append('caption', caption.trim())
+    }
+    if (uploaderToken) {
+      formData.append('uploaderToken', uploaderToken)
+    }
+
     const res = await fetch('/api/photos', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        imageUrl: finalUrl,
-        caption: caption ? caption.trim() : null,
-        uploaderToken,
-      }),
+      body: formData,
     })
 
     if (res.ok) {
@@ -294,30 +247,18 @@ export async function addPhoto(params: {
       const currentLocal = getLocalPhotos()
       saveLocalPhotos([createdPhoto, ...currentLocal])
       return createdPhoto
+    } else {
+      const errJson = await res.json().catch(() => ({}))
+      throw new Error(errJson.error || 'Erreur lors de la sauvegarde sur le serveur.')
     }
-  } catch {
-    // API failed, fallback to local storage
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'Impossible de contacter le serveur.'
+    throw new Error(errorMsg)
   }
-
-  // Fallback Local Entry
-  const newPhoto: Photo = {
-    id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    image_url: finalUrl,
-    caption: caption ? caption.trim() : null,
-    status: 'active',
-    uploader_token: uploaderToken,
-    created_at: new Date().toISOString(),
-    deleted_at: null,
-  }
-
-  const currentLocal = getLocalPhotos()
-  saveLocalPhotos([newPhoto, ...currentLocal])
-
-  return newPhoto
 }
 
 /**
- * Update Photo Status (e.g. active <-> deleted)
+ * Update Photo Status (active <-> deleted)
  */
 export async function updatePhotoStatus(
   photoId: string,
@@ -346,7 +287,6 @@ export async function updatePhotoStatus(
     }
   }
 
-  // Call Server API /api/photos
   try {
     const res = await fetch('/api/photos', {
       method: 'PATCH',
@@ -365,7 +305,6 @@ export async function updatePhotoStatus(
     // API failure
   }
 
-  // Update in Local Storage fallback
   const currentLocal = getLocalPhotos()
   const updatedLocal = currentLocal.map((p) => {
     if (p.id === photoId) {
@@ -418,7 +357,7 @@ export async function deletePhotoPermanently(photoId: string): Promise<boolean> 
 }
 
 /**
- * Download Single Photo helper function
+ * Download Single Photo
  */
 export async function downloadPhoto(imageUrl: string, photoId?: string) {
   const filename = `photowall_${photoId || Date.now()}.jpg`
