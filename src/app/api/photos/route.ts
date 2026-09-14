@@ -53,12 +53,53 @@ function ensureDirectories() {
   }
 }
 
+// Convert base64 data URL to static file on disk
+function saveBase64Image(dataUrl: string): string {
+  ensureDirectories()
+  try {
+    const parts = dataUrl.split(';base64,')
+    if (parts.length === 2) {
+      const header = parts[0]
+      const base64Data = parts[1]
+      let ext = 'jpg'
+      if (header.includes('png')) ext = 'png'
+      else if (header.includes('webp')) ext = 'webp'
+      else if (header.includes('gif')) ext = 'gif'
+
+      const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
+      const filepath = path.join(UPLOADS_DIR, filename)
+
+      fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
+      return `/uploads/${filename}`
+    }
+  } catch (err) {
+    console.error('Error saving base64 image:', err)
+  }
+  return dataUrl
+}
+
 function readPhotos(): Photo[] {
   ensureDirectories()
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf-8')
     const parsed = JSON.parse(raw) as Photo[]
-    return Array.isArray(parsed) ? parsed : INITIAL_DEMO_PHOTOS
+    if (!Array.isArray(parsed)) return INITIAL_DEMO_PHOTOS
+
+    // Sanitize any existing photos with raw base64 or broken data
+    let modified = false
+    const sanitized = parsed.map((p) => {
+      if (p.image_url && p.image_url.startsWith('data:')) {
+        p.image_url = saveBase64Image(p.image_url)
+        modified = true
+      }
+      return p
+    }).filter((p) => p && p.image_url && p.image_url.trim().length > 0)
+
+    if (modified) {
+      fs.writeFileSync(DATA_FILE, JSON.stringify(sanitized, null, 2), 'utf-8')
+    }
+
+    return sanitized
   } catch {
     return INITIAL_DEMO_PHOTOS
   }
@@ -98,7 +139,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/photos
- * Supports FormData (for mobile camera & file uploads) AND JSON (for URL / base64)
+ * Supports FormData & JSON payloads
  */
 export async function POST(req: NextRequest) {
   try {
@@ -126,7 +167,7 @@ export async function POST(req: NextRequest) {
         fs.writeFileSync(filepath, buffer)
         finalImageUrl = `/uploads/${filename}`
       } else if (rawUrl) {
-        finalImageUrl = rawUrl
+        finalImageUrl = rawUrl.startsWith('data:') ? saveBase64Image(rawUrl) : rawUrl
       }
     } else {
       const body = await req.json()
@@ -134,19 +175,8 @@ export async function POST(req: NextRequest) {
       caption = body.caption || null
       uploaderToken = body.uploaderToken || null
 
-      if (typeof rawUrl === 'string' && rawUrl.startsWith('data:image/')) {
-        const matches = rawUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/)
-        if (matches && matches.length === 3) {
-          const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1]
-          const base64Data = matches[2]
-          const filename = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`
-          const filepath = path.join(UPLOADS_DIR, filename)
-
-          fs.writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
-          finalImageUrl = `/uploads/${filename}`
-        } else {
-          finalImageUrl = rawUrl
-        }
+      if (typeof rawUrl === 'string' && rawUrl.startsWith('data:')) {
+        finalImageUrl = saveBase64Image(rawUrl)
       } else {
         finalImageUrl = rawUrl
       }

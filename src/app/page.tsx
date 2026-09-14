@@ -124,6 +124,9 @@ export default async function HomePage() {
                       src={photo.image_url}
                       alt={photo.caption || 'Photo Wall'}
                       className="h-full w-full object-cover"
+                      onError={(e) => {
+                        ;(e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?q=80&w=1000&auto=format&fit=crop'
+                      }}
                     />
                   </div>
                   <div className="mt-2 text-center px-1">

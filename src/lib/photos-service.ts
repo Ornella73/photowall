@@ -56,6 +56,46 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 ]
 
 /**
+ * Compress file into small JPEG Blob for fast mobile & desktop upload
+ */
+export function compressFileToBlob(file: File, maxWidth = 1200, quality = 0.85): Promise<Blob> {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        let width = img.width
+        let height = img.height
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width)
+          width = maxWidth
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height)
+          canvas.toBlob(
+            (blob) => {
+              resolve(blob || file)
+            },
+            'image/jpeg',
+            quality
+          )
+        } else {
+          resolve(file)
+        }
+      }
+      img.onerror = () => resolve(file)
+      img.src = e.target?.result as string
+    }
+    reader.onerror = () => resolve(file)
+    reader.readAsDataURL(file)
+  })
+}
+
+/**
  * Local Storage Fallback Helpers
  */
 export function getLocalPhotos(): Photo[] {
@@ -66,7 +106,8 @@ export function getLocalPhotos(): Photo[] {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_DEMO_PHOTOS))
       return INITIAL_DEMO_PHOTOS
     }
-    return JSON.parse(data) as Photo[]
+    const parsed = JSON.parse(data) as Photo[]
+    return Array.isArray(parsed) ? parsed : INITIAL_DEMO_PHOTOS
   } catch {
     return INITIAL_DEMO_PHOTOS
   }
@@ -131,7 +172,7 @@ export async function getActivePhotos(): Promise<Photo[]> {
   }
 
   const local = getLocalPhotos()
-  return local.filter((p) => p.status === 'active')
+  return local.filter((p) => p && p.status === 'active' && p.image_url)
 }
 
 /**
@@ -167,7 +208,7 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
 }
 
 /**
- * Upload & Create Photo (Uses FormData to send photos reliably from Mobile or PC)
+ * Upload & Create Photo (Compresses mobile photos client-side & uploads via FormData)
  */
 export async function addPhoto(params: {
   imageUrl: string
@@ -225,7 +266,8 @@ export async function addPhoto(params: {
   try {
     const formData = new FormData()
     if (file) {
-      formData.append('file', file, file.name || 'mobile_photo.jpg')
+      const compressedBlob = await compressFileToBlob(file)
+      formData.append('file', compressedBlob, file.name || 'mobile_photo.jpg')
     }
     if (imageUrl) {
       formData.append('imageUrl', imageUrl)

@@ -361,6 +361,9 @@ export default function WallPage() {
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       loading="lazy"
                       decoding="async"
+                      onError={(e) => {
+                        ;(e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?q=80&w=1000&auto=format&fit=crop'
+                      }}
                     />
 
                     {/* Owner Badge */}
