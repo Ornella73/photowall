@@ -15,6 +15,7 @@ export interface Database {
         Row: {
           id: string
           image_url: string
+          caption?: string | null
           status: PhotoStatus
           uploader_token: string | null
           created_at: string
@@ -23,6 +24,7 @@ export interface Database {
         Insert: {
           id?: string
           image_url: string
+          caption?: string | null
           status?: PhotoStatus
           uploader_token?: string | null
           created_at?: string
@@ -31,6 +33,7 @@ export interface Database {
         Update: {
           id?: string
           image_url?: string
+          caption?: string | null
           status?: PhotoStatus
           uploader_token?: string | null
           created_at?: string

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { ShieldCheck, LogOut, Eye, EyeOff, Trash2, Lock, Mail, RefreshCcw, Loader2, AlertCircle, Download } from 'lucide-react'
+import { ShieldCheck, LogOut, Eye, EyeOff, Trash2, Lock, Mail, RefreshCcw, Loader2, AlertCircle, Download, ArrowLeft } from 'lucide-react'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -16,7 +17,7 @@ import { getAllAdminPhotos, updatePhotoStatus, deletePhotoPermanently, isSupabas
 export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null)
   const [loadingAuth, setLoadingAuth] = useState(true)
-  
+
   // Login Form state
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -94,7 +95,7 @@ export default function AdminPage() {
           fetchAdminPhotos()
         }
       } catch {
-        setAuthError('Erreur de connexion Réseau Supabase.')
+        setAuthError('Erreur de connexion Supabase.')
         setLoginLoading(false)
       }
     } else {
@@ -159,55 +160,61 @@ export default function AdminPage() {
   if (loadingAuth) {
     return (
       <div className="flex flex-1 items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+        <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
       </div>
     )
   }
 
-  // Mode Non Connecté : Formulaire de Connexion
+  // Login View
   if (!user) {
     return (
-      <div className="mx-auto max-w-md px-4 py-16 sm:px-6 flex-1 flex flex-col justify-center">
-        <Card className="border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-xl">
+      <div className="mx-auto max-w-md px-4 py-16 sm:px-6 flex-1 flex flex-col justify-center pb-24 sm:pb-12">
+        <div className="mb-4">
+          <Link href="/" className="inline-flex items-center gap-2 text-xs font-semibold text-amber-400 hover:text-amber-300">
+            <ArrowLeft className="h-4 w-4" /> Retour à l&apos;accueil
+          </Link>
+        </div>
+
+        <Card className="border-amber-900/40 bg-stone-900/90 shadow-2xl backdrop-blur-xl">
           <CardHeader className="text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600/10 text-violet-400 mb-3">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-400 mb-3">
               <ShieldCheck className="h-6 w-6" />
             </div>
-            <CardTitle className="text-2xl font-bold text-white">Espace Admin</CardTitle>
-            <CardDescription>
-              Connectez-vous avec vos identifiants Supabase Auth pour modérer le mur photo.
+            <CardTitle className="text-2xl font-black text-amber-100">Modération Administrateur</CardTitle>
+            <CardDescription className="text-stone-400">
+              Interface confidentielle pour modérer les photos du mur.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Adresse Email Admin</Label>
+                <Label htmlFor="email" className="text-stone-300">Email Administrateur</Label>
                 <div className="relative">
-                  <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+                  <Mail className="absolute left-3.5 top-3 h-4 w-4 text-stone-500" />
                   <Input
                     id="email"
                     type="email"
                     placeholder="admin@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 border-amber-900/40 bg-stone-950 text-stone-100"
                     required
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Mot de passe</Label>
+                <Label htmlFor="password" className="text-stone-300">Mot de passe</Label>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
+                  <Lock className="absolute left-3.5 top-3 h-4 w-4 text-stone-500" />
                   <Input
                     id="password"
                     type="password"
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 border-amber-900/40 bg-stone-950 text-stone-100"
                     required
                   />
                 </div>
@@ -220,7 +227,7 @@ export default function AdminPage() {
                 </div>
               )}
 
-              <Button type="submit" disabled={loginLoading} className="w-full h-11">
+              <Button type="submit" disabled={loginLoading} className="w-full h-11 bg-gradient-to-r from-amber-500 to-orange-500 text-stone-950 font-bold">
                 {loginLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connexion...
@@ -236,26 +243,26 @@ export default function AdminPage() {
     )
   }
 
-  // Mode Connecté : Tableau de Bord Administrateur
+  // Connected Admin Dashboard View
   const activePhotos = photos.filter((p) => p.status === 'active')
   const deletedPhotos = photos.filter((p) => p.status === 'deleted')
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 flex-1 flex flex-col space-y-8">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 flex-1 flex flex-col space-y-8 pb-28 sm:pb-12">
       {/* Top Admin Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-6 backdrop-blur-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-amber-900/40 bg-stone-900/80 p-6 backdrop-blur-xl">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600/20 text-violet-400">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/20 text-amber-400">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white">Tableau de Modération Admin</h1>
-            <p className="text-xs text-slate-400">Connecté en tant que : {user.email}</p>
+            <h1 className="text-xl font-bold text-amber-100">Panneau de Modération Admin</h1>
+            <p className="text-xs text-stone-400">Compte : {user.email}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={fetchAdminPhotos} disabled={photosLoading}>
+          <Button variant="outline" size="sm" onClick={fetchAdminPhotos} disabled={photosLoading} className="border-amber-900/50 bg-stone-950 text-amber-200">
             <RefreshCcw className={`mr-2 h-4 w-4 ${photosLoading ? 'animate-spin' : ''}`} />
             Actualiser
           </Button>
@@ -267,34 +274,34 @@ export default function AdminPage() {
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="p-4 flex items-center justify-between">
+        <Card className="p-4 border-amber-900/40 bg-stone-900/60 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400">Total Photos</p>
-            <p className="text-2xl font-bold text-white">{photos.length}</p>
+            <p className="text-xs text-stone-400">Total Photos</p>
+            <p className="text-2xl font-black text-amber-100">{photos.length}</p>
           </div>
           <Badge variant="secondary">Total</Badge>
         </Card>
 
-        <Card className="p-4 flex items-center justify-between">
+        <Card className="p-4 border-amber-900/40 bg-stone-900/60 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400">Photos Actives (En ligne)</p>
-            <p className="text-2xl font-bold text-emerald-400">{activePhotos.length}</p>
+            <p className="text-xs text-stone-400">En ligne (Actives)</p>
+            <p className="text-2xl font-black text-emerald-400">{activePhotos.length}</p>
           </div>
-          <Badge variant="default">Actives</Badge>
+          <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">En ligne</Badge>
         </Card>
 
-        <Card className="p-4 flex items-center justify-between">
+        <Card className="p-4 border-amber-900/40 bg-stone-900/60 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400">Photos Masquées / Supprimées</p>
-            <p className="text-2xl font-bold text-rose-400">{deletedPhotos.length}</p>
+            <p className="text-xs text-stone-400">Masquées</p>
+            <p className="text-2xl font-black text-rose-400">{deletedPhotos.length}</p>
           </div>
           <Badge variant="destructive">Masquées</Badge>
         </Card>
       </div>
 
-      {/* Main Moderation Tabs */}
+      {/* Moderation Tabs */}
       <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
+        <TabsList className="grid w-full grid-cols-3 max-w-md bg-stone-950 border border-stone-800">
           <TabsTrigger value="all">Toutes ({photos.length})</TabsTrigger>
           <TabsTrigger value="active">Actives ({activePhotos.length})</TabsTrigger>
           <TabsTrigger value="deleted">Masquées ({deletedPhotos.length})</TabsTrigger>
@@ -311,33 +318,36 @@ export default function AdminPage() {
           return (
             <TabsContent key={tabKey} value={tabKey} className="pt-4">
               {displayed.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-800 p-8 text-center text-slate-400">
-                  Aucune photo dans cette catégorie.
+                <div className="rounded-2xl border border-dashed border-amber-900/40 p-8 text-center text-stone-400">
+                  Aucune photo dans cette rubrique.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                   {displayed.map((photo) => (
-                    <Card key={photo.id} className="overflow-hidden p-0 border-slate-800 bg-slate-900/80">
-                      <div className="relative aspect-video w-full overflow-hidden bg-slate-950">
+                    <Card key={photo.id} className="overflow-hidden p-0 border-amber-900/40 bg-stone-900/90">
+                      <div className="relative aspect-video w-full overflow-hidden bg-black">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={photo.image_url}
-                          alt="Moderation thumbnail"
+                          alt={photo.caption || 'Photo admin'}
                           className="h-full w-full object-cover"
                         />
                         <div className="absolute top-2 right-2">
-                          <Badge variant={photo.status === 'active' ? 'default' : 'destructive'}>
+                          <Badge className={photo.status === 'active' ? 'bg-emerald-500 text-stone-950' : 'bg-rose-500 text-white'}>
                             {photo.status === 'active' ? 'En ligne' : 'Masquée'}
                           </Badge>
                         </div>
                       </div>
 
                       <div className="p-4 space-y-3">
-                        <p className="text-xs text-slate-400">
+                        <p className="font-bold text-amber-100 text-sm truncate font-handwriting text-lg">
+                          {photo.caption || 'Sans légende'}
+                        </p>
+                        <p className="text-[11px] text-stone-400">
                           {new Date(photo.created_at).toLocaleString('fr-FR')}
                         </p>
 
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+                        <div className="flex items-center gap-2 pt-2 border-t border-stone-800">
                           <Button
                             variant={photo.status === 'active' ? 'outline' : 'secondary'}
                             size="sm"
@@ -361,7 +371,7 @@ export default function AdminPage() {
                             size="icon"
                             onClick={() => downloadPhoto(photo.image_url, photo.id)}
                             title="Télécharger l'image"
-                            className="border-slate-800 bg-slate-950 text-slate-300 hover:text-white"
+                            className="border-stone-800 bg-stone-950 text-stone-300 hover:text-white"
                           >
                             <Download className="h-4 w-4" />
                           </Button>

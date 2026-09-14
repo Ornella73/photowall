@@ -1,14 +1,15 @@
 import Link from 'next/link'
-import { Sparkles, Camera, Zap, ShieldCheck, ArrowRight } from 'lucide-react'
+import { Sparkles, Camera, Film, ArrowRight, Heart, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/server'
+import { Photo } from '@/types/database.types'
 
 export const revalidate = 0
 
 export default async function HomePage() {
-  let photos: Array<{ id: string; image_url: string; created_at: string }> | null = null
+  let photos: Photo[] | null = null
 
   try {
     const supabase = await createClient()
@@ -17,7 +18,7 @@ export default async function HomePage() {
       .select('*')
       .eq('status', 'active')
       .order('created_at', { ascending: false })
-      .limit(4)
+      .limit(6)
 
     photos = data
   } catch {
@@ -25,41 +26,41 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="relative overflow-hidden">
-      {/* Background Orbs */}
-      <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-violet-600/20 via-indigo-600/20 to-purple-600/10 blur-[120px]" />
+    <div className="relative overflow-hidden pb-24 sm:pb-16">
+      {/* Warm Ambient Orbs */}
+      <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-gradient-to-tr from-amber-600/20 via-orange-600/15 to-amber-700/10 blur-[130px]" />
 
       {/* Hero Section */}
-      <section className="relative px-4 pt-20 pb-16 text-center sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-4xl space-y-8">
-          <Badge variant="violet" className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider backdrop-blur-md">
-            <Sparkles className="mr-2 h-3.5 w-3.5 text-violet-400" />
-            Expérience Photo Temps Réel
+      <section className="relative px-4 pt-16 pb-12 text-center sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl space-y-6">
+          <Badge className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border-amber-500/30 backdrop-blur-md">
+            <Sparkles className="mr-2 h-3.5 w-3.5 text-amber-400" />
+            Mur Photo Souvenirs Temps Réel
           </Badge>
 
-          <h1 className="text-4xl font-extrabold tracking-tight text-white sm:text-6xl lg:text-7xl">
-            Partagez vos moments sur le{' '}
-            <span className="bg-gradient-to-r from-violet-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">
-              Mur Photo Interactif
+          <h1 className="text-4xl font-black tracking-tight text-amber-50 sm:text-6xl lg:text-7xl">
+            Immortalisez vos plus beaux moments sur le{' '}
+            <span className="bg-gradient-to-r from-amber-400 via-orange-300 to-amber-500 bg-clip-text text-transparent">
+              Mur Interactif
             </span>
           </h1>
 
-          <p className="mx-auto max-w-2xl text-lg text-slate-300 sm:text-xl">
-            Postez vos photos en un instant et observez-les apparaître en direct sur l’écran géant grâce à la puissance de Supabase Realtime.
+          <p className="mx-auto max-w-2xl text-base sm:text-xl text-stone-300">
+            Prenez ou partagez vos photos en direct et regardez-les apparaître instantanément sur l’écran géant du mur photo.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <Button size="lg" asChild className="w-full sm:w-auto shadow-violet-600/30">
+            <Button size="lg" asChild className="w-full sm:w-auto bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-stone-950 font-extrabold shadow-lg shadow-amber-900/40 hover:brightness-110">
               <Link href="/upload">
                 <Camera className="mr-2 h-5 w-5" />
-                Ajouter une Photo
+                Poster une Photo
               </Link>
             </Button>
 
-            <Button size="lg" variant="outline" asChild className="w-full sm:w-auto">
+            <Button size="lg" variant="outline" asChild className="w-full sm:w-auto border-amber-900/50 bg-stone-900/80 text-amber-200 hover:bg-stone-800">
               <Link href="/wall">
-                <Sparkles className="mr-2 h-5 w-5 text-violet-400" />
-                Voir le Mur Live
+                <Sparkles className="mr-2 h-5 w-5 text-amber-400" />
+                Découvrir le Mur Live
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
@@ -67,71 +68,82 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Live Preview Section */}
+      {/* Live Polaroid Preview Section */}
       {photos && photos.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between mb-8">
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-white">Dernières photos ajoutées</h2>
-              <p className="text-sm text-slate-400">Directement synchronisées sur le mur</p>
+              <h2 className="text-2xl font-bold text-amber-100">Derniers souvenirs partagés</h2>
+              <p className="text-xs text-stone-400">Mises à jour instantanées sur le mur</p>
             </div>
-            <Button variant="ghost" asChild>
+            <Button variant="ghost" asChild className="text-amber-400 hover:text-amber-300 hover:bg-stone-900">
               <Link href="/wall">
-                Voir toutes ({photos.length}) <ArrowRight className="ml-2 h-4 w-4" />
+                Voir toutes les photos <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {photos.map((photo) => (
-              <div key={photo.id} className="group relative aspect-square overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-xl transition-all duration-300 hover:scale-[1.02] hover:border-violet-500/50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo.image_url}
-                  alt="Photo Wall"
-                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                  <span className="text-xs font-medium text-slate-200">
-                    {new Date(photo.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4">
+            {photos.map((photo, i) => {
+              const tiltAngles = [-1, 1.2, -0.8, 1, -1.5, 0.9]
+              const tilt = tiltAngles[i % tiltAngles.length]
+
+              return (
+                <div
+                  key={photo.id}
+                  style={{ transform: `rotate(${tilt}deg)` }}
+                  className="polaroid-card p-2 rounded-xl shadow-lg transition-transform duration-300 hover:scale-105 hover:rotate-0"
+                >
+                  <div className="aspect-square w-full overflow-hidden rounded-lg bg-stone-900">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.image_url}
+                      alt={photo.caption || 'Photo Wall'}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="mt-2 text-center px-1">
+                    <p className="font-handwriting font-bold text-amber-950 dark:text-amber-100 text-sm truncate">
+                      {photo.caption || 'Moment partagé'}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
 
       {/* Features Grid */}
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-          <Card className="hover:border-violet-500/40 transition-colors">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400 mb-6">
-              <Zap className="h-6 w-6" />
-            </div>
-            <h3 className="text-xl font-bold text-white mb-2">Supabase Realtime</h3>
-            <p className="text-sm text-slate-400">
-              Les nouvelles photos sont transmises en temps réel sans rechargement de page.
-            </p>
-          </Card>
-
-          <Card className="hover:border-violet-500/40 transition-colors">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 mb-6">
+      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <Card className="border-amber-900/40 bg-stone-900/60 p-6 backdrop-blur-xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-400 mb-4">
               <Camera className="h-6 w-6" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Upload Instantané</h3>
-            <p className="text-sm text-slate-400">
-              Uploadez une image par fichier local ou via une URL en un clic avec prévisualisation immédiate.
+            <h3 className="text-lg font-bold text-amber-100 mb-2">Capture Caméra & Légendes</h3>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Prenez des photos en direct depuis l&apos;appareil de votre smartphone et personnalisez-les avec une petite légende.
             </p>
           </Card>
 
-          <Card className="hover:border-violet-500/40 transition-colors">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 mb-6">
-              <ShieldCheck className="h-6 w-6" />
+          <Card className="border-amber-900/40 bg-stone-900/60 p-6 backdrop-blur-xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-400 mb-4">
+              <Film className="h-6 w-6" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Modération Admin</h3>
-            <p className="text-sm text-slate-400">
-              Espace sécurisé pour masquer ou supprimer les images inappropriées avec Supabase Auth & RLS.
+            <h3 className="text-lg font-bold text-amber-100 mb-2">Mini Film & Diaporama</h3>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Regardez un défilé animé style film vidéo de toutes les photos du mur avec musique d&apos;ambiance et plein écran.
+            </p>
+          </Card>
+
+          <Card className="border-amber-900/40 bg-stone-900/60 p-6 backdrop-blur-xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-400 mb-4">
+              <Archive className="h-6 w-6" />
+            </div>
+            <h3 className="text-lg font-bold text-amber-100 mb-2">Téléchargement Album ZIP</h3>
+            <p className="text-xs text-stone-400 leading-relaxed">
+              Téléchargez vos souvenirs un à un ou sauvegardez l&apos;intégralité du mur sous forme d&apos;album ZIP complet.
             </p>
           </Card>
         </div>

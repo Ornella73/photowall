@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { Photo, PhotoStatus } from '@/types/database.types'
+import JSZip from 'jszip'
 
 const LOCAL_STORAGE_KEY = 'photowall_local_photos_v1'
 const BROADCAST_CHANNEL_NAME = 'photowall_realtime_channel'
@@ -28,6 +29,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
     id: 'demo-1',
     image_url: 'https://images.unsplash.com/photo-1579783902614-a3fb3927b675?q=80&w=1000&auto=format&fit=crop',
+    caption: 'Superbe moment partagé ✨',
     status: 'active',
     uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
@@ -36,6 +38,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
     id: 'demo-2',
     image_url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1000&auto=format&fit=crop',
+    caption: 'Une ambiance chaleureuse 🌟',
     status: 'active',
     uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
@@ -44,6 +47,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
     id: 'demo-3',
     image_url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1000&auto=format&fit=crop',
+    caption: 'Souvenir féerique 🌌',
     status: 'active',
     uploader_token: 'demo',
     created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
@@ -193,9 +197,10 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
 export async function addPhoto(params: {
   imageUrl: string
   file?: File | null
+  caption?: string | null
   uploaderToken: string
 }): Promise<Photo> {
-  const { imageUrl, file, uploaderToken } = params
+  const { imageUrl, file, caption, uploaderToken } = params
   let finalUrl = imageUrl
 
   // If Supabase is configured, try Supabase upload & insert first
@@ -225,6 +230,7 @@ export async function addPhoto(params: {
           .from('photos')
           .insert({
             image_url: finalUrl,
+            caption: caption ? caption.trim() : null,
             status: 'active',
             uploader_token: uploaderToken,
           })
@@ -253,6 +259,7 @@ export async function addPhoto(params: {
   const newPhoto: Photo = {
     id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     image_url: finalUrl,
+    caption: caption ? caption.trim() : null,
     status: 'active',
     uploader_token: uploaderToken,
     created_at: new Date().toISOString(),
@@ -341,7 +348,7 @@ export async function deletePhotoPermanently(photoId: string): Promise<boolean> 
 }
 
 /**
- * Download Photo helper function
+ * Download Single Photo helper function
  */
 export async function downloadPhoto(imageUrl: string, photoId?: string) {
   const filename = `photowall_${photoId || Date.now()}.jpg`
@@ -378,3 +385,65 @@ export async function downloadPhoto(imageUrl: string, photoId?: string) {
     document.body.removeChild(a)
   }
 }
+
+/**
+ * Download Photos Album as ZIP Archive
+ */
+export async function downloadPhotosAlbum(
+  photos: Photo[],
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  if (!photos || photos.length === 0) {
+    throw new Error('Aucune photo à télécharger.')
+  }
+
+  const zip = new JSZip()
+  const folder = zip.folder('photowall_album')
+
+  let count = 0
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i]
+    try {
+      let blob: Blob
+      if (photo.image_url.startsWith('data:')) {
+        const res = await fetch(photo.image_url)
+        blob = await res.blob()
+      } else {
+        const response = await fetch(photo.image_url, { mode: 'cors' })
+        blob = await response.blob()
+      }
+      const mimeType = blob.type
+      let ext = 'jpg'
+      if (mimeType.includes('png')) ext = 'png'
+      else if (mimeType.includes('webp')) ext = 'webp'
+
+      const captionSlug = photo.caption
+        ? photo.caption.toLowerCase().replace(/[^a-z0-9]/gi, '_').substring(0, 15)
+        : ''
+      const filename = `photo_${i + 1}${captionSlug ? '_' + captionSlug : ''}.${ext}`
+
+      folder?.file(filename, blob)
+      count++
+      if (onProgress) {
+        onProgress(Math.round(((i + 1) / photos.length) * 100))
+      }
+    } catch (err) {
+      console.warn(`Could not fetch photo ${photo.id} for zip:`, err)
+    }
+  }
+
+  if (count === 0) {
+    throw new Error('Impossible d\'extraire les fichiers images.')
+  }
+
+  const content = await zip.generateAsync({ type: 'blob' })
+  const url = URL.createObjectURL(content)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `photowall_album_${new Date().toISOString().slice(0, 10)}.zip`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
