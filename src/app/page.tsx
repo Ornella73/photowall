@@ -1,10 +1,13 @@
 import Link from 'next/link'
-import { Sparkles, Camera, Film, ArrowRight, Heart, Archive } from 'lucide-react'
+import { Sparkles, Camera, Film, ArrowRight, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/server'
 import { Photo } from '@/types/database.types'
+
+import fs from 'fs'
+import path from 'path'
 
 export const revalidate = 0
 
@@ -23,6 +26,23 @@ export default async function HomePage() {
     photos = data
   } catch {
     photos = null
+  }
+
+  // Fallback to shared server data store
+  if (!photos || photos.length === 0) {
+    try {
+      const storePath = path.join(process.cwd(), 'data', 'photos_store.json')
+      if (fs.existsSync(storePath)) {
+        const raw = fs.readFileSync(storePath, 'utf-8')
+        const parsed = JSON.parse(raw) as Photo[]
+        photos = parsed
+          .filter((p) => p.status === 'active')
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 6)
+      }
+    } catch {
+      photos = null
+    }
   }
 
   return (

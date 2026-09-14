@@ -56,7 +56,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 ]
 
 /**
- * Helper to compress image file into JPEG Data URL for local storage
+ * Helper to compress image file into JPEG Data URL for payload transmission
  */
 export function compressImageFile(file: File): Promise<string> {
   return new Promise((resolve) => {
@@ -87,12 +87,12 @@ export function compressImageFile(file: File): Promise<string> {
         const ctx = canvas.getContext('2d')
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height)
-          resolve(canvas.toDataURL('image/jpeg', 0.82))
+          resolve(canvas.toDataURL('image/jpeg', 0.85))
         } else {
-          resolve(e.target?.result as string || '')
+          resolve((e.target?.result as string) || '')
         }
       }
-      img.onerror = () => resolve(reader.result as string || '')
+      img.onerror = () => resolve((reader.result as string) || '')
       img.src = e.target?.result as string
     }
     reader.onerror = () => resolve('')
@@ -101,7 +101,7 @@ export function compressImageFile(file: File): Promise<string> {
 }
 
 /**
- * Local Storage Helpers
+ * Local Storage Helpers (Fallback)
  */
 export function getLocalPhotos(): Photo[] {
   if (typeof window === 'undefined') return INITIAL_DEMO_PHOTOS
@@ -137,16 +137,16 @@ function notifyBroadcastChannel() {
     channel.postMessage({ type: 'PHOTOS_UPDATED', timestamp: Date.now() })
     channel.close()
   } catch {
-    // BroadcastChannel unsupported or restricted
+    // BroadcastChannel unsupported
   }
-  // Also dispatch window custom event for same-tab updates
   window.dispatchEvent(new Event('photowall_local_update'))
 }
 
 /**
- * Get all active photos (combines Supabase and LocalStorage safely)
+ * Get all active photos globally (from Supabase or server API /api/photos)
  */
 export async function getActivePhotos(): Promise<Photo[]> {
+  // Try Supabase first if configured
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
@@ -160,8 +160,20 @@ export async function getActivePhotos(): Promise<Photo[]> {
         return data
       }
     } catch {
-      // Supabase network request failed, fallback to local storage
+      // Supabase network request failed, fallback to server API
     }
+  }
+
+  // Server Shared API /api/photos
+  try {
+    const res = await fetch('/api/photos', { cache: 'no-store' })
+    if (res.ok) {
+      const serverPhotos = (await res.json()) as Photo[]
+      saveLocalPhotos(serverPhotos)
+      return serverPhotos
+    }
+  } catch {
+    // Server API failed, fallback to local storage
   }
 
   const local = getLocalPhotos()
@@ -184,15 +196,24 @@ export async function getAllAdminPhotos(): Promise<Photo[]> {
         return data
       }
     } catch {
-      // Supabase network failure, fallback to local storage
+      // Supabase network failure, fallback to server API
     }
+  }
+
+  try {
+    const res = await fetch('/api/photos?mode=admin', { cache: 'no-store' })
+    if (res.ok) {
+      return (await res.json()) as Photo[]
+    }
+  } catch {
+    // fallback
   }
 
   return getLocalPhotos()
 }
 
 /**
- * Upload & Create Photo
+ * Upload & Create Photo (saves globally for all users via Supabase or /api/photos)
  */
 export async function addPhoto(params: {
   imageUrl: string
@@ -203,7 +224,7 @@ export async function addPhoto(params: {
   const { imageUrl, file, caption, uploaderToken } = params
   let finalUrl = imageUrl
 
-  // If Supabase is configured, try Supabase upload & insert first
+  // If Supabase is configured, upload to Supabase DB & Storage
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
@@ -243,11 +264,11 @@ export async function addPhoto(params: {
         }
       }
     } catch {
-      // If network error happens, continue to fallback local storage mode
+      // Continue to server API mode if Supabase fails
     }
   }
 
-  // Local Storage Fallback Mode
+  // Prepare file payload for Server API
   if (file && (!finalUrl || finalUrl === imageUrl)) {
     finalUrl = await compressImageFile(file)
   }
@@ -256,6 +277,29 @@ export async function addPhoto(params: {
     throw new Error("L'image n'a pas pu être préparée pour l'envoi.")
   }
 
+  // Upload to Global Server API /api/photos so ALL users see it
+  try {
+    const res = await fetch('/api/photos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl: finalUrl,
+        caption: caption ? caption.trim() : null,
+        uploaderToken,
+      }),
+    })
+
+    if (res.ok) {
+      const createdPhoto = (await res.json()) as Photo
+      const currentLocal = getLocalPhotos()
+      saveLocalPhotos([createdPhoto, ...currentLocal])
+      return createdPhoto
+    }
+  } catch {
+    // API failed, fallback to local storage
+  }
+
+  // Fallback Local Entry
   const newPhoto: Photo = {
     id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     image_url: finalUrl,
@@ -267,8 +311,7 @@ export async function addPhoto(params: {
   }
 
   const currentLocal = getLocalPhotos()
-  const updatedLocal = [newPhoto, ...currentLocal]
-  saveLocalPhotos(updatedLocal)
+  saveLocalPhotos([newPhoto, ...currentLocal])
 
   return newPhoto
 }
@@ -281,8 +324,6 @@ export async function updatePhotoStatus(
   newStatus: PhotoStatus,
   uploaderToken?: string
 ): Promise<boolean> {
-  let updatedInSupabase = false
-
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
@@ -299,13 +340,32 @@ export async function updatePhotoStatus(
       }
 
       const { error } = await query
-      if (!error) updatedInSupabase = true
+      if (!error) return true
     } catch {
-      // Supabase network failure
+      // Supabase failure
     }
   }
 
-  // Update in Local Storage as well
+  // Call Server API /api/photos
+  try {
+    const res = await fetch('/api/photos', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        photoId,
+        status: newStatus,
+        uploaderToken,
+      }),
+    })
+    if (res.ok) {
+      notifyBroadcastChannel()
+      return true
+    }
+  } catch {
+    // API failure
+  }
+
+  // Update in Local Storage fallback
   const currentLocal = getLocalPhotos()
   const updatedLocal = currentLocal.map((p) => {
     if (p.id === photoId) {
@@ -321,30 +381,40 @@ export async function updatePhotoStatus(
   })
 
   saveLocalPhotos(updatedLocal)
-  return updatedInSupabase || true
+  return true
 }
 
 /**
  * Hard Delete Photo Permanently
  */
 export async function deletePhotoPermanently(photoId: string): Promise<boolean> {
-  let deletedInSupabase = false
-
   if (isSupabaseConfigured()) {
     try {
       const supabase = createClient()
       const { error } = await supabase.from('photos').delete().eq('id', photoId)
-      if (!error) deletedInSupabase = true
+      if (!error) return true
     } catch {
-      // Supabase network failure
+      // Supabase failure
     }
+  }
+
+  try {
+    const res = await fetch(`/api/photos?id=${encodeURIComponent(photoId)}`, {
+      method: 'DELETE',
+    })
+    if (res.ok) {
+      notifyBroadcastChannel()
+      return true
+    }
+  } catch {
+    // API failure
   }
 
   const currentLocal = getLocalPhotos()
   const updatedLocal = currentLocal.filter((p) => p.id !== photoId)
   saveLocalPhotos(updatedLocal)
 
-  return deletedInSupabase || true
+  return true
 }
 
 /**
@@ -446,4 +516,3 @@ export async function downloadPhotosAlbum(
   document.body.removeChild(a)
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
-

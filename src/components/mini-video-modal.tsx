@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, SkipForward, SkipBack, Maximize2, Minimize2, Volume2, VolumeX, Sparkles, X, Download, Film } from 'lucide-react'
+import { Play, Pause, SkipForward, SkipBack, Maximize2, Minimize2, Volume2, VolumeX, X, Download, Film } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Photo } from '@/types/database.types'
