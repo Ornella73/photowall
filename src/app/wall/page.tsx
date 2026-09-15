@@ -11,7 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Photo } from '@/types/database.types'
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { getUploaderToken } from '@/lib/uploader-token'
-import { getActivePhotos, updatePhotoStatus, isSupabaseConfigured, downloadPhoto, downloadPhotosAlbum } from '@/lib/photos-service'
+import { getActivePhotos, deletePhotoPermanently, isSupabaseConfigured, downloadPhoto, downloadPhotosAlbum, saveLocalPhotos, getLocalPhotos } from '@/lib/photos-service'
 import { MiniVideoModal } from '@/components/mini-video-modal'
 
 export default function WallPage() {
@@ -67,20 +67,27 @@ export default function WallPage() {
     setUploaderToken(getUploaderToken())
   }, [])
 
-  // Handle owner self-deletion (Only owner can delete their own photo)
+  // Handle owner self-deletion — PERMANENT and INSTANT
   const handleDeleteMyPhoto = async (photoId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
-    if (!confirm('Voulez-vous vraiment retirer votre photo du mur ?')) return
+    if (!confirm('Voulez-vous vraiment supprimer définitivement votre photo ?')) return
 
     setDeletingId(photoId)
 
+    // 1. Remove from UI IMMEDIATELY — don't wait for server
+    setPhotos((prev) => prev.filter((p) => p.id !== photoId))
+    setSelectedPhoto(null)
+
+    // 2. Remove from local cache IMMEDIATELY
+    const updatedLocal = getLocalPhotos().filter((p) => p.id !== photoId)
+    saveLocalPhotos(updatedLocal, true) // broadcast to all tabs
+
+    // 3. Permanently delete from server in background
     try {
-      await updatePhotoStatus(photoId, 'deleted', uploaderToken)
-      setPhotos((prev) => prev.filter((p) => p.id !== photoId))
-      setSelectedPhoto(null)
-      showNotification('🗑️ Votre photo a été retirée du mur.')
+      await deletePhotoPermanently(photoId)
+      showNotification('🗑️ Photo supprimée définitivement.')
     } catch {
-      showNotification('❌ Erreur lors de la suppression.')
+      showNotification('⚠️ Supprimé localement — erreur serveur, sera retiré au prochain rechargement.')
     } finally {
       setDeletingId(null)
     }
@@ -334,14 +341,11 @@ export default function WallPage() {
         </div>
       ) : (
         /* DIY Polaroid Grid */
-        <motion.div
-          layout
-          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6"
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 sm:gap-8">
           <AnimatePresence mode="popLayout">
             {photos.map((photo, index) => {
               const isMyPhoto = Boolean(uploaderToken && photo.uploader_token === uploaderToken)
-              // Subtle random tilt angle per photo for DIY aesthetic
+              // Subtle tilt via CSS style (not Framer animate) to avoid Framer Layout conflicts
               const tiltAngles = [-1.5, 1, -0.8, 1.2, -1.2, 0.8]
               const tilt = tiltAngles[index % tiltAngles.length]
 
@@ -350,15 +354,17 @@ export default function WallPage() {
                   key={photo.id}
                   layout
                   initial={{ opacity: 0, scale: 0.7, y: 30 }}
-                  animate={{ opacity: 1, scale: 1, y: 0, rotate: tilt }}
-                  exit={{ opacity: 0, scale: 0.6, y: -20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.5, y: -30 }}
                   transition={{
-                    layout: { type: 'spring', stiffness: 350, damping: 25 },
-                    opacity: { duration: 0.3 },
-                    scale: { duration: 0.3 },
+                    layout: { type: 'spring', stiffness: 300, damping: 30 },
+                    opacity: { duration: 0.25 },
+                    scale: { duration: 0.25 },
                   }}
+                  style={{ rotate: `${tilt}deg` }}
+                  whileHover={{ scale: 1.04, rotate: 0, zIndex: 20 }}
                   onClick={() => setSelectedPhoto(photo)}
-                  className="group relative polaroid-card p-2 sm:p-2.5 rounded-xl cursor-pointer select-none transition-all duration-300 hover:scale-[1.04] hover:z-20 hover:rotate-0"
+                  className="group relative polaroid-card p-2 sm:p-2.5 rounded-xl cursor-pointer select-none"
                 >
                   {/* Washi tape accent on top center */}
                   <div className="washi-tape top-[-8px] left-1/2 -translate-x-1/2" />
@@ -428,7 +434,7 @@ export default function WallPage() {
               )
             })}
           </AnimatePresence>
-        </motion.div>
+        </div>
       )}
 
       {/* Lightbox Modal Preview */}
