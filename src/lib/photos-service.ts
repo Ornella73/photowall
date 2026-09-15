@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { Photo, PhotoStatus } from '@/types/database.types'
+import { getUploaderToken } from '@/lib/uploader-token'
 import JSZip from 'jszip'
 
 const LOCAL_STORAGE_KEY = 'photowall_local_photos_v1'
@@ -181,7 +182,7 @@ export async function getActivePhotos(): Promise<Photo[]> {
   }
 
   const localPhotos = getLocalPhotos()
-  const uploaderToken = typeof window !== 'undefined' ? localStorage.getItem('photowall_uploader_token') || '' : ''
+  const uploaderToken = getUploaderToken()
 
   const photoMap = new Map<string, Photo>()
 
