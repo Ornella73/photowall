@@ -65,7 +65,7 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 /**
  * Compress file into small JPEG Blob for fast mobile & desktop upload
  */
-export function compressFileToBlob(file: File, maxWidth = 10240, quality = 0.9): Promise<Blob> {
+export function compressFileToBlob(file: File, maxWidth = 1920, quality = 0.92): Promise<Blob> {
   return new Promise((resolve) => {
     if (!file || !file.type.startsWith('image/')) {
       resolve(file)

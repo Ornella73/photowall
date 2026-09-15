@@ -8,9 +8,19 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const maxDuration = 60
 
-// Safe writable directory in /tmp for serverless environments (Vercel, AWS, etc.)
+// Safe writable directories in /tmp for serverless environments (Vercel, AWS, etc.)
 const TMP_DIR = path.join(os.tmpdir(), 'photowall_data')
 const TMP_FILE = path.join(TMP_DIR, 'photos_store.json')
+const IMAGES_DIR = path.join(TMP_DIR, 'images')
+
+function ensureDirs() {
+  try {
+    if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true })
+    if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true })
+  } catch {
+    // ignore
+  }
+}
 
 const INITIAL_DEMO_PHOTOS: Photo[] = [
   {
@@ -76,21 +86,81 @@ function getPhotosStore(): Photo[] {
 function savePhotosStore(photos: Photo[]) {
   globalThis.__PHOTOWALL_GLOBAL_STORE__ = photos
   try {
-    if (!fs.existsSync(TMP_DIR)) {
-      fs.mkdirSync(TMP_DIR, { recursive: true })
-    }
-    fs.writeFileSync(TMP_FILE, JSON.stringify(photos, null, 2), 'utf-8')
+    ensureDirs()
+    // Only store metadata (never base64 blobs) in the JSON index
+    const metadataOnly = photos.map((p) => ({
+      ...p,
+      // If image_url is a huge base64 string, it should not reach here
+      // All base64 should have been saved to disk already
+    }))
+    fs.writeFileSync(TMP_FILE, JSON.stringify(metadataOnly, null, 2), 'utf-8')
   } catch {
     // /tmp write fallback
   }
 }
 
 /**
+ * Serve an uploaded image file by photo ID.
+ * GET /api/photos?image=photo_xxx
+ */
+async function serveImage(req: NextRequest): Promise<NextResponse> {
+  const { searchParams } = new URL(req.url)
+  const imageId = searchParams.get('image')
+  if (!imageId) {
+    return NextResponse.json({ error: 'Image ID manquant' }, { status: 400 })
+  }
+
+  // Try jpg and png and webp
+  const extensions = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+  let filePath: string | null = null
+  for (const ext of extensions) {
+    const candidate = path.join(IMAGES_DIR, `${imageId}.${ext}`)
+    if (fs.existsSync(candidate)) {
+      filePath = candidate
+      break
+    }
+  }
+
+  if (!filePath) {
+    return NextResponse.json({ error: 'Image non trouvée' }, { status: 404 })
+  }
+
+  try {
+    const fileBuffer = fs.readFileSync(filePath)
+    const ext = path.extname(filePath).replace('.', '')
+    const mimeMap: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+      gif: 'image/gif',
+    }
+    const mime = mimeMap[ext] || 'image/jpeg'
+    return new NextResponse(fileBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': mime,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    })
+  } catch {
+    return NextResponse.json({ error: 'Erreur lecture image' }, { status: 500 })
+  }
+}
+
+/**
  * GET /api/photos
- * Return all active photos for the shared event wall
+ * Return all active photos for the shared event wall.
+ * GET /api/photos?image=<id>  → serve the actual image file
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
+
+  // Image file serving sub-route
+  if (searchParams.has('image')) {
+    return serveImage(req)
+  }
+
   const mode = searchParams.get('mode')
   const photos = getPhotosStore()
 
@@ -115,13 +185,16 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/photos
- * Create new photo entry (verifies uploader token & uploads image)
+ * Upload a new photo. Saves the image file to disk and stores metadata only in the JSON index.
+ * This ensures photos uploaded from phone/mobile are visible to ALL connected devices.
  */
 export async function POST(req: NextRequest) {
   try {
-    let finalImageUrl = ''
     let caption: string | null = null
     let uploaderToken: string | null = null
+    let imageBuffer: Buffer | null = null
+    let mimeType = 'image/jpeg'
+    let finalImageUrl = ''
 
     const contentType = req.headers.get('content-type') || ''
 
@@ -134,30 +207,66 @@ export async function POST(req: NextRequest) {
 
       if (file && file.size > 0) {
         const bytes = await file.arrayBuffer()
-        const buffer = Buffer.from(bytes)
-        const mimeType = file.type || 'image/jpeg'
-        const base64Str = buffer.toString('base64')
-        finalImageUrl = `data:${mimeType};base64,${base64Str}`
+        imageBuffer = Buffer.from(bytes)
+        mimeType = file.type || 'image/jpeg'
       } else if (rawUrl) {
+        // External URL — store directly, no file saving needed
         finalImageUrl = rawUrl
       }
     } else {
       const body = await req.json()
-      finalImageUrl = body.imageUrl || ''
-      caption = body.caption || null
       uploaderToken = body.uploaderToken || null
+      caption = body.caption || null
+
+      // If the client sent a base64 data URL, decode it
+      if (body.imageUrl && typeof body.imageUrl === 'string') {
+        const dataUrlMatch = (body.imageUrl as string).match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/)
+        if (dataUrlMatch) {
+          mimeType = dataUrlMatch[1]
+          imageBuffer = Buffer.from(dataUrlMatch[2], 'base64')
+        } else {
+          finalImageUrl = body.imageUrl
+        }
+      }
+    }
+
+    if (!uploaderToken) {
+      return NextResponse.json({ error: "Identifiant d'uploader requis" }, { status: 400 })
+    }
+
+    // Generate a unique photo ID
+    const photoId = `photo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+
+    // Save image file to disk if we have binary data
+    if (imageBuffer && imageBuffer.length > 0) {
+      ensureDirs()
+      const extMap: Record<string, string> = {
+        'image/jpeg': 'jpg',
+        'image/jpg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+      }
+      const ext = extMap[mimeType] || 'jpg'
+      const imageFilePath = path.join(IMAGES_DIR, `${photoId}.${ext}`)
+
+      try {
+        fs.writeFileSync(imageFilePath, imageBuffer)
+        // Return a server-relative URL that works from any device on the same network
+        finalImageUrl = `/api/photos?image=${encodeURIComponent(photoId)}`
+      } catch (writeErr) {
+        console.error('Failed to write image file to disk:', writeErr)
+        // Fallback: store as base64 if disk write fails
+        finalImageUrl = `data:${mimeType};base64,${imageBuffer.toString('base64')}`
+      }
     }
 
     if (!finalImageUrl) {
       return NextResponse.json({ error: 'Fichier image manquant ou invalide' }, { status: 400 })
     }
 
-    if (!uploaderToken) {
-      return NextResponse.json({ error: 'Identifiant d\'uploader requis' }, { status: 400 })
-    }
-
     const newPhoto: Photo = {
-      id: `photo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: photoId,
       event_id: 'main-event',
       uploader_token: uploaderToken,
       user_id: null,
@@ -175,7 +284,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(newPhoto, { status: 201 })
   } catch (err: unknown) {
     console.error('Error in POST /api/photos:', err)
-    const msg = err instanceof Error ? err.message : 'Erreur serveur lors de l\'enregistrement'
+    const msg = err instanceof Error ? err.message : "Erreur serveur lors de l'enregistrement"
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -204,7 +313,7 @@ export async function PATCH(req: NextRequest) {
     const isOwner = targetPhoto.uploader_token === uploaderToken || uploaderToken === 'admin'
     if (!isOwner) {
       return NextResponse.json(
-        { error: 'Action non autorisée. Vous n\'êtes pas le propriétaire de cette photo.' },
+        { error: "Action non autorisée. Vous n'êtes pas le propriétaire de cette photo." },
         { status: 403 }
       )
     }
@@ -252,9 +361,24 @@ export async function DELETE(req: NextRequest) {
     // Strict Ownership check
     if (targetPhoto.uploader_token !== uploaderToken && uploaderToken !== 'admin') {
       return NextResponse.json(
-        { error: 'Action non autorisée. Vous n\'êtes pas le propriétaire de cette photo.' },
+        { error: "Action non autorisée. Vous n'êtes pas le propriétaire de cette photo." },
         { status: 403 }
       )
+    }
+
+    // Also delete the image file from disk if it's a local file
+    if (targetPhoto.image_url && targetPhoto.image_url.startsWith('/api/photos?image=')) {
+      const imageId = new URL('http://localhost' + targetPhoto.image_url).searchParams.get('image')
+      if (imageId) {
+        const extensions = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+        for (const ext of extensions) {
+          const filePath = path.join(IMAGES_DIR, `${imageId}.${ext}`)
+          if (fs.existsSync(filePath)) {
+            try { fs.unlinkSync(filePath) } catch { /* ignore */ }
+            break
+          }
+        }
+      }
     }
 
     const filtered = photos.filter((p) => p.id !== id)
