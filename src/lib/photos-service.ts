@@ -208,26 +208,32 @@ export async function getActivePhotos(): Promise<Photo[]> {
 
   const photoMap = new Map<string, Photo>()
 
-  // 1. Add server photos
+  // 1. Server photos are the absolute source of truth — add them all
   if (serverPhotos && Array.isArray(serverPhotos)) {
     for (const p of serverPhotos) {
-      if (p && p.id && p.status === 'active') {
+      if (p && p.id && p.status === 'active' && p.image_url) {
         photoMap.set(p.id, p)
       }
     }
   }
 
-  // 2. Add local photos if active and not soft-deleted
+  // 2. Add local photos ONLY for the current user's newly-uploaded photos
+  //    that haven't been confirmed by the server yet.
+  //    Never add a local photo if:
+  //    - the server already has it (handled above)
+  //    - it has a base64 data URL (that would not be visible to other devices)
   for (const p of localPhotos) {
     if (!p || !p.id) continue
     if (p.status === 'deleted') {
       photoMap.delete(p.id)
     } else if (p.status === 'active') {
-      if (!photoMap.has(p.id)) {
-        // If current user uploaded it, preserve local copy
-        if (uploaderToken && p.uploader_token === uploaderToken) {
-          photoMap.set(p.id, p)
-        }
+      // Skip any photo already provided by the server
+      if (photoMap.has(p.id)) continue
+      // Skip photos with base64 URLs (not visible to other devices)
+      if (p.image_url && p.image_url.startsWith('data:')) continue
+      // Only add local photos for the current uploader that have proper URLs
+      if (uploaderToken && p.uploader_token === uploaderToken && p.image_url) {
+        photoMap.set(p.id, p)
       }
     }
   }
@@ -236,8 +242,10 @@ export async function getActivePhotos(): Promise<Photo[]> {
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
-  saveLocalPhotos(result, false)
-  return result
+  // Persist to local cache — but strip any leftover base64 entries
+  const cleanResult = result.filter((p) => p.image_url && !p.image_url.startsWith('data:'))
+  saveLocalPhotos(cleanResult, false)
+  return cleanResult
 }
 
 /**
@@ -331,13 +339,17 @@ export async function addPhoto(params: {
   // Upload to Global Server API /api/photos using FormData
   try {
     const formData = new FormData()
+
     if (file) {
+      // Always compress before sending to avoid payload errors on mobile
       const compressedBlob = await compressFileToBlob(file)
-      formData.append('file', compressedBlob, file.name || 'mobile_photo.jpg')
-    }
-    if (imageUrl) {
+      formData.append('file', compressedBlob, file.name || 'photo.jpg')
+      // When a real file is present, do NOT send imageUrl (avoids sending duplicate base64)
+    } else if (imageUrl && !imageUrl.startsWith('data:')) {
+      // Only send external URLs (not base64 previews) when there is no file
       formData.append('imageUrl', imageUrl)
     }
+
     if (caption) {
       formData.append('caption', caption.trim())
     }
@@ -352,12 +364,14 @@ export async function addPhoto(params: {
 
     if (res.ok) {
       const createdPhoto = (await res.json()) as Photo
-      const currentLocal = getLocalPhotos()
-      saveLocalPhotos([createdPhoto, ...currentLocal], true) // notify = true for upload
+      // Store locally the server version (which has a proper server URL, never base64)
+      const currentLocal = getLocalPhotos().filter((p) => p.id !== createdPhoto.id)
+      saveLocalPhotos([createdPhoto, ...currentLocal], true) // notify = true to broadcast to all tabs
       return createdPhoto
     } else {
       const errJson = await res.json().catch(() => ({}))
       throw new Error(errJson.error || 'Erreur lors de la sauvegarde sur le serveur.')
+
     }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : 'Impossible de contacter le serveur.'
