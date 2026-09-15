@@ -6,6 +6,7 @@ import { Photo } from '@/types/database.types'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+export const maxDuration = 60
 
 // Safe writable directory in /tmp for serverless environments (Vercel, AWS, etc.)
 const TMP_DIR = path.join(os.tmpdir(), 'photowall_data')

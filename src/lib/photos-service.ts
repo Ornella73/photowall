@@ -65,32 +65,54 @@ const INITIAL_DEMO_PHOTOS: Photo[] = [
 /**
  * Compress file into small JPEG Blob for fast mobile & desktop upload
  */
-export function compressFileToBlob(file: File, maxWidth = 1200, quality = 0.85): Promise<Blob> {
+export function compressFileToBlob(file: File, maxWidth = 2048, quality = 0.9): Promise<Blob> {
   return new Promise((resolve) => {
+    if (!file || !file.type.startsWith('image/')) {
+      resolve(file)
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = (e) => {
       const img = new Image()
       img.onload = () => {
-        let width = img.width
-        let height = img.height
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width)
-          width = maxWidth
-        }
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height)
-          canvas.toBlob(
-            (blob) => {
-              resolve(blob || file)
-            },
-            'image/jpeg',
-            quality
-          )
-        } else {
+        try {
+          let width = img.width
+          let height = img.height
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width)
+            width = maxWidth
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height)
+            if (typeof canvas.toBlob === 'function') {
+              canvas.toBlob(
+                (blob) => {
+                  resolve(blob || file)
+                },
+                'image/jpeg',
+                quality
+              )
+            } else {
+              const dataUrl = canvas.toDataURL('image/jpeg', quality)
+              const arr = dataUrl.split(',')
+              const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg'
+              const bstr = atob(arr[1])
+              let n = bstr.length
+              const u8arr = new Uint8Array(n)
+              while (n--) {
+                u8arr[n] = bstr.charCodeAt(n)
+              }
+              resolve(new Blob([u8arr], { type: mime }))
+            }
+          } else {
+            resolve(file)
+          }
+        } catch {
           resolve(file)
         }
       }
